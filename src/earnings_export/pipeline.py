@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from earnings_export.date_window import iter_weekdays
 from earnings_export.models import ExportRow
+from earnings_export.sources.finviz_market_cap import fetch_market_caps
+from earnings_export.sources.nasdaq_calendar import fetch_nasdaq_earnings_for_day
 
 
 def filter_and_sort_events(events, market_caps, exported_at, min_market_cap):
@@ -23,3 +26,25 @@ def filter_and_sort_events(events, market_caps, exported_at, min_market_cap):
             )
         )
     return sorted(rows, key=lambda row: (row.earnings_date, row.ticker))
+
+
+def collect_events_for_week(start_date, end_date, session):
+    events = []
+    seen = set()
+    for day in iter_weekdays(start_date, end_date):
+        for event in fetch_nasdaq_earnings_for_day(day, session):
+            key = (event.earnings_date, event.ticker)
+            if key in seen:
+                continue
+            seen.add(key)
+            events.append(event)
+    return events
+
+
+def lookup_market_caps_for_events(events, session):
+    symbols = sorted({event.ticker for event in events})
+    return fetch_market_caps(symbols, session)
+
+
+def build_export_rows(events, market_caps, exported_at, min_market_cap):
+    return filter_and_sort_events(events, market_caps, exported_at, min_market_cap)
