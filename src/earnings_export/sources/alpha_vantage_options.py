@@ -28,19 +28,28 @@ SUPPORTED_FIELDS = (
 def _float_or_none(value: object) -> float | None:
     if value in (None, "", "None"):
         return None
-    return float(value)
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _int_or_none(value: object) -> int | None:
     if value in (None, "", "None"):
         return None
-    return int(float(value))
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return None
 
 
 def _parse_date(value: object) -> date | None:
     if not value:
         return None
-    return date.fromisoformat(str(value))
+    try:
+        return date.fromisoformat(str(value))
+    except ValueError:
+        return None
 
 
 def _parse_quote_timestamp(value: object) -> datetime | None:
@@ -50,7 +59,14 @@ def _parse_quote_timestamp(value: object) -> datetime | None:
     return datetime.combine(quote_date, time.min, tzinfo=timezone.utc)
 
 
-def _parse_contract(record: dict) -> OptionContract:
+def _parse_contract(record: dict) -> OptionContract | None:
+    option_symbol = str(record.get("contractID") or record.get("contract_id") or "")
+    option_type = str(record.get("type") or "").lower()
+    expiration = _parse_date(record.get("expiration"))
+    strike = _float_or_none(record.get("strike"))
+    if not option_symbol or option_type not in {"call", "put"} or expiration is None or not strike or strike < 0:
+        return None
+
     bid = _float_or_none(record.get("bid")) or 0.0
     ask = _float_or_none(record.get("ask")) or 0.0
     midpoint = (bid + ask) / 2 if bid > 0 and ask > 0 else None
@@ -63,10 +79,10 @@ def _parse_contract(record: dict) -> OptionContract:
         rho=_float_or_none(record.get("rho")),
     )
     return OptionContract(
-        option_symbol=str(record.get("contractID") or record.get("contract_id") or ""),
-        option_type=str(record.get("type") or "").lower(),
-        expiration=_parse_date(record.get("expiration")),
-        strike=_float_or_none(record.get("strike")) or 0.0,
+        option_symbol=option_symbol,
+        option_type=option_type,
+        expiration=expiration,
+        strike=strike,
         bid=bid,
         ask=ask,
         midpoint=midpoint,
@@ -79,8 +95,12 @@ def _parse_contract(record: dict) -> OptionContract:
 
 
 def parse_alpha_vantage_error(payload: dict, symbol: str, collected_at: datetime) -> ProviderResult:
-    message = str(payload.get("Information") or payload.get("Note") or "Alpha Vantage unavailable")
-    return ProviderResult.unavailable("alpha_vantage", "entitlement_unavailable", message)
+    note = str(payload.get("Note") or "").lower()
+    if any(phrase in note for phrase in ("frequency", "rate limit", "requests per", "calls per")):
+        return ProviderResult.unavailable("alpha_vantage", "rate_limited", "Alpha Vantage rate limit reached")
+    return ProviderResult.unavailable(
+        "alpha_vantage", "entitlement_unavailable", "Alpha Vantage entitlement is unavailable",
+    )
 
 
 def parse_alpha_vantage_options(payload: dict, symbol: str, collected_at: datetime) -> ProviderResult:
@@ -91,10 +111,24 @@ def parse_alpha_vantage_options(payload: dict, symbol: str, collected_at: dateti
     if not isinstance(records, list):
         return ProviderResult.unavailable("alpha_vantage", "invalid_response")
 
+    contracts = []
+    invalid_records = 0
+    for record in records:
+        if not isinstance(record, dict):
+            invalid_records += 1
+            continue
+        contract = _parse_contract(record)
+        if contract is None:
+            invalid_records += 1
+            continue
+        contracts.append(contract)
+    if not contracts:
+        return ProviderResult.unavailable("alpha_vantage", "invalid_response")
+
     capability = ProviderCapability(
         provider="alpha_vantage",
         available=True,
-        code="available",
+        code="partial_data" if invalid_records else "available",
         supported_fields=SUPPORTED_FIELDS,
     )
     snapshot = OptionChainSnapshot(
@@ -102,7 +136,8 @@ def parse_alpha_vantage_options(payload: dict, symbol: str, collected_at: dateti
         collected_at=collected_at,
         provider="alpha_vantage",
         provider_capabilities=(capability,),
-        contracts=tuple(_parse_contract(record) for record in records if isinstance(record, dict)),
+        contracts=tuple(contracts),
+        data_quality_flags=("partial_contract_data",) if invalid_records else (),
     )
     return ProviderResult(snapshot=snapshot, capability=capability)
 
@@ -137,6 +172,19 @@ class AlphaVantageOptionsProvider:
         }
         if extra_params:
             params.update(extra_params)
-        response = self._session.get(ALPHA_VANTAGE_URL, params=params, timeout=30)
-        response.raise_for_status()
-        return parse_alpha_vantage_options(response.json(), symbol, self._clock())
+        try:
+            response = self._session.get(ALPHA_VANTAGE_URL, params=params, timeout=30)
+            response.raise_for_status()
+        except requests.HTTPError as error:
+            status_code = error.response.status_code if error.response is not None else None
+            code = "rate_limited" if status_code == 429 else "entitlement_unavailable" if status_code in {401, 403} else "http_error"
+            message = f"Alpha Vantage HTTP request failed ({status_code})" if status_code else "Alpha Vantage HTTP request failed"
+            return ProviderResult.unavailable(self.name, code, message)
+        except requests.RequestException:
+            return ProviderResult.unavailable(self.name, "network_error", "Alpha Vantage request failed")
+
+        try:
+            payload = response.json()
+        except ValueError:
+            return ProviderResult.unavailable(self.name, "invalid_response")
+        return parse_alpha_vantage_options(payload, symbol, self._clock())

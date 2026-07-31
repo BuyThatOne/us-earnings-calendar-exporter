@@ -5,6 +5,7 @@
         "quote": {"regularMarketPrice": 210.50},
         "options": [
           {
+            "expirationDate": 1787270400,
             "calls": [
               {
                 "contractSymbol": "AAPL260821C00200000",

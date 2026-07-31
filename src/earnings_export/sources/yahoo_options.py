@@ -19,7 +19,7 @@ def _float_or_none(value: object) -> float | None:
     return float(value)
 
 
-def _parse_contract(record: dict, option_type: str) -> OptionContract:
+def _parse_contract(record: dict, option_type: str, expiration: date | None) -> OptionContract:
     bid = _float_or_none(record.get("bid")) or 0.0
     ask = _float_or_none(record.get("ask")) or 0.0
     midpoint = (bid + ask) / 2 if bid > 0 and ask > 0 else None
@@ -28,7 +28,7 @@ def _parse_contract(record: dict, option_type: str) -> OptionContract:
     return OptionContract(
         option_symbol=str(record.get("contractSymbol") or ""),
         option_type=option_type,
-        expiration=None,
+        expiration=expiration,
         strike=_float_or_none(record.get("strike")) or 0.0,
         bid=bid,
         ask=ask,
@@ -51,10 +51,14 @@ def parse_yahoo_options(payload: dict, symbol: str, collected_at: datetime) -> P
         return ProviderResult.unavailable("yahoo", "invalid_response")
     contracts = []
     for option_set in option_sets:
+        expiration_timestamp = option_set.get("expirationDate")
+        expiration = datetime.fromtimestamp(expiration_timestamp, tz=timezone.utc).date() if expiration_timestamp else None
         for option_type, field in (("call", "calls"), ("put", "puts")):
             records = option_set.get(field, [])
             if isinstance(records, list):
-                contracts.extend(_parse_contract(record, option_type) for record in records if isinstance(record, dict))
+                contracts.extend(
+                    _parse_contract(record, option_type, expiration) for record in records if isinstance(record, dict)
+                )
 
     capability = ProviderCapability(
         provider="yahoo",

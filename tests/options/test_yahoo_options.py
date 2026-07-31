@@ -16,6 +16,7 @@ def test_yahoo_current_chain_normalizes_quote_and_contracts():
     assert result.snapshot.underlying_price == 210.50
     assert result.snapshot.contracts[0].option_type == "call"
     assert result.snapshot.contracts[0].bid == 4.20
+    assert result.snapshot.contracts[0].expiration == date(2026, 8, 21)
     assert result.capability.available is True
 
 
