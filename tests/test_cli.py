@@ -32,6 +32,17 @@ def test_run_export_next_week_orchestrates_pipeline(monkeypatch, tmp_path):
     assert output_path == tmp_path / "out.csv"
 
 
+def test_main_prints_export_path(monkeypatch, capsys):
+    monkeypatch.setattr(
+        "earnings_export.cli.run_export_next_week",
+        lambda today=None, output_dir=None, min_market_cap=50_000_000_000: "exports/earnings-calendar/out.csv",
+    )
+
+    assert main(["export-next-week"]) == 0
+
+    assert "exports/earnings-calendar/out.csv" in capsys.readouterr().out
+
+
 def test_run_export_next_week_raises_when_no_rows_survive_filter(monkeypatch, tmp_path):
     monkeypatch.setattr("earnings_export.cli.get_next_week_window", lambda today: (date(2026, 8, 3), date(2026, 8, 7)))
     monkeypatch.setattr("earnings_export.cli.collect_events_for_week", lambda start_date, end_date, session: ["event"])

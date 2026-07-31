@@ -12,6 +12,8 @@ class EarningsEvent:
     earnings_time: str | None
     exchange: str | None
     source_calendar_url: str
+    market_cap: int | None = None
+    market_cap_source_url: str | None = None
 
 
 @dataclass(frozen=True)

@@ -37,5 +37,6 @@ def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     if argv != ["export-next-week"]:
         raise SystemExit("Usage: python -m earnings_export export-next-week")
-    run_export_next_week()
+    output_path = run_export_next_week()
+    print(output_path)
     return 0

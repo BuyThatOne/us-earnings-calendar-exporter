@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import date
 from urllib.parse import quote
 
@@ -10,6 +11,15 @@ from earnings_export.models import EarningsEvent
 
 def build_nasdaq_calendar_url(day: date) -> str:
     return f"https://api.nasdaq.com/api/calendar/earnings?date={quote(day.isoformat())}"
+
+
+def parse_nasdaq_market_cap(raw_value: str | None) -> int | None:
+    if not raw_value:
+        return None
+    digits = re.sub(r"[^0-9]", "", raw_value)
+    if not digits:
+        return None
+    return int(digits)
 
 
 def parse_nasdaq_calendar_payload(payload: dict, earnings_day: date, source_url: str) -> list[EarningsEvent]:
@@ -27,6 +37,8 @@ def parse_nasdaq_calendar_payload(payload: dict, earnings_day: date, source_url:
                 earnings_time=row.get("time") or None,
                 exchange=row.get("exchange") or None,
                 source_calendar_url=source_url,
+                market_cap=parse_nasdaq_market_cap(row.get("marketCap")),
+                market_cap_source_url=source_url if row.get("marketCap") else None,
             )
         )
     return events
