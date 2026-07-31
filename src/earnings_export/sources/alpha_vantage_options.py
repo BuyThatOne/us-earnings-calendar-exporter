@@ -70,8 +70,16 @@ def _parse_contract(record: dict) -> OptionContract | None:
     if not option_symbol or option_type not in {"call", "put"} or expiration is None or not strike or strike < 0:
         return None
 
-    bid = _float_or_none(record.get("bid")) or 0.0
-    ask = _float_or_none(record.get("ask")) or 0.0
+    raw_bid = record.get("bid")
+    raw_ask = record.get("ask")
+    bid = _float_or_none(raw_bid)
+    ask = _float_or_none(raw_ask)
+    if raw_bid not in (None, "", "None") and bid is None:
+        return None
+    if raw_ask not in (None, "", "None") and ask is None:
+        return None
+    bid = bid or 0.0
+    ask = ask or 0.0
     midpoint = (bid + ask) / 2 if bid > 0 and ask > 0 else None
     spread_pct = (ask - bid) / midpoint if midpoint else None
     greeks = OptionGreeks(

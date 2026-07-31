@@ -82,6 +82,16 @@ def test_alpha_nan_numeric_record_is_excluded_as_partial_data(load_fixture):
     assert result.capability.code == "partial_data"
 
 
+def test_alpha_nan_bid_does_not_become_a_valid_zero_quote(load_fixture):
+    result = parse_alpha_vantage_options(
+        load_fixture("alpha_vantage/nan_bid_options.json"), "AAPL", FIXED_TIME,
+    )
+
+    assert result.snapshot is None
+    assert result.capability.available is False
+    assert result.capability.code == "invalid_response"
+
+
 def test_alpha_empty_payload_is_unavailable():
     result = parse_alpha_vantage_options({"data": []}, "AAPL", FIXED_TIME)
 
