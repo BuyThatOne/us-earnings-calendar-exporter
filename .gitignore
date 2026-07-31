@@ -25,6 +25,7 @@ htmlcov/
 !.env.example
 .idea/
 .vscode/
+.worktrees/
 
 # Generated earnings exports; keep the directory placeholder tracked.
 exports/earnings-calendar/*.csv
