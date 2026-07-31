@@ -1,0 +1,26 @@
+{
+  "optionChain": {
+    "result": [
+      {
+        "quote": {"regularMarketPrice": 210.50},
+        "options": [
+          {
+            "calls": [
+              {
+                "contractSymbol": "AAPL260821C00200000",
+                "strike": 200.0,
+                "bid": 4.2,
+                "ask": 4.6,
+                "impliedVolatility": 0.31,
+                "openInterest": 1234,
+                "lastTradeDate": 1787328000
+              }
+            ],
+            "puts": []
+          }
+        ]
+      }
+    ],
+    "error": null
+  }
+}
