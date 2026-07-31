@@ -20,6 +20,17 @@ def test_yahoo_current_chain_normalizes_quote_and_contracts():
     assert result.capability.available is True
 
 
+def test_yahoo_malformed_expiration_skips_option_set_and_marks_partial_data():
+    payload = json.loads(Path("tests/fixtures/yahoo_options/malformed_expiration_chain.json").read_text())
+
+    result = parse_yahoo_options(payload, symbol="AAPL", collected_at=FIXED_TIME)
+
+    assert len(result.snapshot.contracts) == 1
+    assert result.snapshot.contracts[0].option_symbol == "AAPL260821P00200000"
+    assert result.snapshot.contracts[0].expiration == date(2026, 8, 21)
+    assert result.capability.code == "partial_data"
+
+
 def test_yahoo_adapter_rejects_historical_requests():
     provider = YahooOptionsProvider(session=object())
 

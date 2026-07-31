@@ -72,6 +72,16 @@ def test_alpha_partial_payload_keeps_valid_contract_and_marks_partial_data(load_
     assert result.capability.code == "partial_data"
 
 
+def test_alpha_nan_numeric_record_is_excluded_as_partial_data(load_fixture):
+    result = parse_alpha_vantage_options(
+        load_fixture("alpha_vantage/nan_options.json"), "AAPL", FIXED_TIME,
+    )
+
+    assert len(result.snapshot.contracts) == 1
+    assert result.snapshot.contracts[0].strike == 200.00
+    assert result.capability.code == "partial_data"
+
+
 def test_alpha_empty_payload_is_unavailable():
     result = parse_alpha_vantage_options({"data": []}, "AAPL", FIXED_TIME)
 

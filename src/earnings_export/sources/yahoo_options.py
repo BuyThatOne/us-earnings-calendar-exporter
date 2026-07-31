@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
+from math import isfinite
 from typing import Callable
 
 import requests
@@ -17,6 +18,19 @@ def _float_or_none(value: object) -> float | None:
     if value is None:
         return None
     return float(value)
+
+
+def _parse_expiration(value: object) -> date | None:
+    try:
+        timestamp = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not isfinite(timestamp) or timestamp <= 0:
+        return None
+    try:
+        return datetime.fromtimestamp(timestamp, tz=timezone.utc).date()
+    except (OverflowError, OSError, ValueError):
+        return None
 
 
 def _parse_contract(record: dict, option_type: str, expiration: date | None) -> OptionContract:
@@ -50,9 +64,15 @@ def parse_yahoo_options(payload: dict, symbol: str, collected_at: datetime) -> P
     if not isinstance(option_sets, list):
         return ProviderResult.unavailable("yahoo", "invalid_response")
     contracts = []
+    invalid_option_sets = 0
     for option_set in option_sets:
-        expiration_timestamp = option_set.get("expirationDate")
-        expiration = datetime.fromtimestamp(expiration_timestamp, tz=timezone.utc).date() if expiration_timestamp else None
+        if not isinstance(option_set, dict):
+            invalid_option_sets += 1
+            continue
+        expiration = _parse_expiration(option_set.get("expirationDate"))
+        if expiration is None:
+            invalid_option_sets += 1
+            continue
         for option_type, field in (("call", "calls"), ("put", "puts")):
             records = option_set.get(field, [])
             if isinstance(records, list):
@@ -60,10 +80,13 @@ def parse_yahoo_options(payload: dict, symbol: str, collected_at: datetime) -> P
                     _parse_contract(record, option_type, expiration) for record in records if isinstance(record, dict)
                 )
 
+    if not contracts:
+        return ProviderResult.unavailable("yahoo", "invalid_response")
+
     capability = ProviderCapability(
         provider="yahoo",
         available=True,
-        code="available",
+        code="partial_data" if invalid_option_sets else "available",
         supported_fields=SUPPORTED_FIELDS,
     )
     snapshot = OptionChainSnapshot(
@@ -73,6 +96,7 @@ def parse_yahoo_options(payload: dict, symbol: str, collected_at: datetime) -> P
         provider_capabilities=(capability,),
         underlying_price=_float_or_none(chain.get("quote", {}).get("regularMarketPrice")),
         contracts=tuple(contracts),
+        data_quality_flags=("partial_option_set_data",) if invalid_option_sets else (),
     )
     return ProviderResult(snapshot=snapshot, capability=capability)
 

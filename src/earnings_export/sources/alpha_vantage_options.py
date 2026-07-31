@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, time, timezone
+from math import isfinite
 from typing import Callable
 
 import requests
@@ -29,18 +30,20 @@ def _float_or_none(value: object) -> float | None:
     if value in (None, "", "None"):
         return None
     try:
-        return float(value)
+        parsed = float(value)
     except (TypeError, ValueError):
         return None
+    return parsed if isfinite(parsed) else None
 
 
 def _int_or_none(value: object) -> int | None:
     if value in (None, "", "None"):
         return None
     try:
-        return int(float(value))
+        parsed = float(value)
     except (TypeError, ValueError):
         return None
+    return int(parsed) if isfinite(parsed) else None
 
 
 def _parse_date(value: object) -> date | None:
