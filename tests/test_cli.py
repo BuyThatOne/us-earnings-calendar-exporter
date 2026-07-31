@@ -30,3 +30,13 @@ def test_run_export_next_week_orchestrates_pipeline(monkeypatch, tmp_path):
     output_path = run_export_next_week(today=date(2026, 7, 31), output_dir=tmp_path)
 
     assert output_path == tmp_path / "out.csv"
+
+
+def test_run_export_next_week_raises_when_no_rows_survive_filter(monkeypatch, tmp_path):
+    monkeypatch.setattr("earnings_export.cli.get_next_week_window", lambda today: (date(2026, 8, 3), date(2026, 8, 7)))
+    monkeypatch.setattr("earnings_export.cli.collect_events_for_week", lambda start_date, end_date, session: ["event"])
+    monkeypatch.setattr("earnings_export.cli.lookup_market_caps_for_events", lambda events, session: {})
+    monkeypatch.setattr("earnings_export.cli.build_export_rows", lambda events, market_caps, exported_at, min_market_cap: [])
+
+    with pytest.raises(RuntimeError, match="No filtered output could be produced."):
+        run_export_next_week(today=date(2026, 7, 31), output_dir=tmp_path)

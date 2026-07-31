@@ -2,6 +2,8 @@ import json
 from datetime import date
 from pathlib import Path
 
+import pytest
+
 from earnings_export.sources.nasdaq_calendar import (
     build_nasdaq_calendar_url,
     parse_nasdaq_calendar_payload,
@@ -19,3 +21,8 @@ def test_parse_nasdaq_calendar_payload_returns_normalized_events():
     assert events[0].earnings_date == date(2026, 8, 3)
     assert events[0].source_calendar_url == source_url
     assert events[0].exchange is None
+
+
+def test_parse_nasdaq_calendar_payload_raises_for_missing_rows():
+    with pytest.raises(ValueError, match="NASDAQ payload missing data.rows"):
+        parse_nasdaq_calendar_payload({}, date(2026, 8, 3), "https://example.com")

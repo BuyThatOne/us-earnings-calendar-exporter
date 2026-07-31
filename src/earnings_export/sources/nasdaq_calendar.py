@@ -13,7 +13,9 @@ def build_nasdaq_calendar_url(day: date) -> str:
 
 
 def parse_nasdaq_calendar_payload(payload: dict, earnings_day: date, source_url: str) -> list[EarningsEvent]:
-    rows = payload["data"]["rows"]
+    rows = payload.get("data", {}).get("rows")
+    if not isinstance(rows, list):
+        raise ValueError("NASDAQ payload missing data.rows")
     events = []
     for row in rows:
         ticker = row["symbol"].strip().upper()
