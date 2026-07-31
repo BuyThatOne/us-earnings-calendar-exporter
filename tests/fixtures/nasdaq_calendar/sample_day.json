@@ -1,0 +1,40 @@
+{
+  "data": {
+    "asOf": "Mon, Aug 3, 2026",
+    "headers": {
+      "time": "Time",
+      "symbol": "Symbol",
+      "name": "Company Name",
+      "marketCap": "Market Cap",
+      "fiscalQuarterEnding": "Fiscal Quarter Ending",
+      "epsForecast": "Consensus EPS* Forecast",
+      "noOfEsts": "# of Ests",
+      "lastYearRptDt": "Last Year's Report Date",
+      "lastYearEPS": "Last year's EPS*"
+    },
+    "rows": [
+      {
+        "lastYearRptDt": "8/04/2025",
+        "lastYearEPS": "$0.13",
+        "time": "time-after-hours",
+        "symbol": "AAPL",
+        "name": "Apple Inc.",
+        "marketCap": "$4,119,121,560,000",
+        "fiscalQuarterEnding": "Jun/2026",
+        "epsForecast": "$1.41",
+        "noOfEsts": "15"
+      },
+      {
+        "lastYearRptDt": "8/04/2025",
+        "lastYearEPS": "$4",
+        "time": "time-after-hours",
+        "symbol": "VRTX",
+        "name": "Vertex Pharmaceuticals Incorporated",
+        "marketCap": "$122,258,069,369",
+        "fiscalQuarterEnding": "Jun/2026",
+        "epsForecast": "$4.30",
+        "noOfEsts": "5"
+      }
+    ]
+  }
+}
