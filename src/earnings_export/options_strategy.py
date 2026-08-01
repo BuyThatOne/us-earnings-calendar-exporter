@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from decimal import Decimal
 from datetime import date
+from math import isfinite
 from statistics import median
 
 from earnings_export.options_models import (
@@ -31,8 +33,19 @@ def spread_pct(contract: OptionContract) -> float | None:
 
 
 def contract_is_liquid(contract: OptionContract, spread_limit: float) -> bool:
-    spread = spread_pct(contract)
-    return spread is not None and 0 <= spread <= spread_limit
+    if (
+        contract.bid <= 0
+        or contract.ask <= 0
+        or contract.ask < contract.bid
+        or not all(isfinite(value) for value in (contract.bid, contract.ask, spread_limit))
+    ):
+        return False
+
+    bid = Decimal(str(contract.bid))
+    ask = Decimal(str(contract.ask))
+    midpoint = (bid + ask) / Decimal(2)
+    spread = (ask - bid) / midpoint
+    return spread <= Decimal(str(spread_limit))
 
 
 def _midpoint(contract: OptionContract) -> float:

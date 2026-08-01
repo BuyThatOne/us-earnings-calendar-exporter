@@ -67,6 +67,11 @@ def test_spread_gate_accepts_ten_percent_and_rejects_wider_or_invalid_contracts(
     assert contract_is_liquid(OptionContract(bid=11.0, ask=9.0), 0.10) is False
 
 
+def test_spread_gate_accepts_exact_ten_percent_for_cent_quoted_contract():
+    assert contract_is_liquid(OptionContract(bid=0.57, ask=0.63), 0.10) is True
+    assert contract_is_liquid(OptionContract(bid=0.56, ask=0.63), 0.10) is False
+
+
 def test_builders_emit_all_supported_strategies_with_labeled_evidence():
     candidates = build_ranked_candidates("AAPL", EARNINGS_DATE, _chain(), _history(), 0.10)
 
