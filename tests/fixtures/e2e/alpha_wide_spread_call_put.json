@@ -1,0 +1,39 @@
+{
+  "endpoint": "REALTIME_OPTIONS",
+  "data": [
+    {
+      "contractID": "AAPL260807C00210000",
+      "symbol": "AAPL",
+      "expiration": "2026-08-07",
+      "strike": "210.00",
+      "type": "call",
+      "bid": "8.00",
+      "ask": "12.00",
+      "implied_volatility": "0.31",
+      "delta": "0.52",
+      "gamma": "0.03",
+      "theta": "-0.08",
+      "vega": "0.11",
+      "rho": "0.02",
+      "open_interest": "1234",
+      "date": "2026-07-31"
+    },
+    {
+      "contractID": "AAPL260807P00210000",
+      "symbol": "AAPL",
+      "expiration": "2026-08-07",
+      "strike": "210.00",
+      "type": "put",
+      "bid": "8.00",
+      "ask": "12.00",
+      "implied_volatility": "0.32",
+      "delta": "-0.48",
+      "gamma": "0.03",
+      "theta": "-0.08",
+      "vega": "0.11",
+      "rho": "-0.02",
+      "open_interest": "1200",
+      "date": "2026-07-31"
+    }
+  ]
+}

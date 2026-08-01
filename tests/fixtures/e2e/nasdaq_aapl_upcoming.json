@@ -1,0 +1,13 @@
+{
+  "data": {
+    "rows": [
+      {
+        "symbol": "AAPL",
+        "name": "Apple Inc.",
+        "time": "time-after-hours",
+        "exchange": "NASDAQ",
+        "marketCap": "$3,500,000,000,000"
+      }
+    ]
+  }
+}
