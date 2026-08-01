@@ -68,6 +68,25 @@ class RecordingSession:
         raise AssertionError("authentication or form submission is not allowed")
 
 
+class MembershipResponse:
+    def __init__(self, text):
+        self.text = text
+
+    def raise_for_status(self):
+        raise requests.HTTPError("403 Client Error")
+
+
+class MembershipSession:
+    def __init__(self, text):
+        self.response = MembershipResponse(text)
+
+    def get(self, *args, **kwargs):
+        return self.response
+
+    def post(self, *args, **kwargs):
+        raise AssertionError("authentication or form submission is not allowed")
+
+
 def test_fetch_public_evr_makes_exactly_one_public_get_without_authentication():
     session = RecordingSession()
     provider = OptionSlamEvrProvider(session=session, clock=lambda: FIXED_TIME)
@@ -84,6 +103,16 @@ def test_fetch_public_evr_makes_exactly_one_public_get_without_authentication():
         "timeout": 30,
         "allow_redirects": False,
     }
+
+
+def test_fetch_public_evr_classifies_non_2xx_membership_response(load_fixture):
+    session = MembershipSession(load_fixture("optionslam_evr/membership_response.html"))
+    provider = OptionSlamEvrProvider(session=session, clock=lambda: FIXED_TIME)
+
+    result = provider.fetch_public_evr("AAPL")
+
+    assert result.value is None
+    assert result.status == "authentication_required"
 
 
 class FailingSession:

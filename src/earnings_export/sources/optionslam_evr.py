@@ -46,6 +46,7 @@ class OptionSlamEvrProvider:
     def fetch_public_evr(self, symbol: str) -> EvrResult:
         source_url = OPTIONSLAM_URL.format(symbol=symbol.strip().lower())
         collected_at = self._clock()
+        parsed: EvrResult | None = None
         try:
             response = self._session.get(
                 source_url,
@@ -53,7 +54,11 @@ class OptionSlamEvrProvider:
                 timeout=30,
                 allow_redirects=False,
             )
+            parsed = parse_optionslam_evr(response.text, symbol, source_url, collected_at)
             response.raise_for_status()
         except requests.RequestException:
+            if parsed is not None and parsed.status == "authentication_required":
+                return parsed
             return EvrResult(None, source_url, "request_failed", collected_at)
-        return parse_optionslam_evr(response.text, symbol, source_url, collected_at)
+        assert parsed is not None
+        return parsed
