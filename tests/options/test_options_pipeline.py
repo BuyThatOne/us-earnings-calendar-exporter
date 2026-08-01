@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import date, datetime, timezone
 
 from earnings_export.models import EarningsEvent
@@ -118,6 +119,27 @@ def test_analyze_events_uses_alpha_current_chain_without_calling_yahoo(tmp_path)
     assert result.candidates
     assert any("historical_iv_unavailable" in warning for warning in result.candidates[0].warnings)
     assert any("optionslam_evr_unavailable" in warning for warning in result.candidates[0].warnings)
+
+
+def test_analyze_events_adds_yahoo_spot_without_replacing_alpha_chain(tmp_path):
+    alpha_result = _current_result("alpha_vantage")
+    alpha = RecordingProvider(
+        "alpha_vantage",
+        replace(alpha_result, snapshot=replace(alpha_result.snapshot, underlying_price=None)),
+    )
+    yahoo = RecordingProvider("yahoo", _current_result("yahoo"))
+
+    result = analyze_events([_event()], [alpha, yahoo], _settings(tmp_path), FIXED_TIME)
+
+    assert yahoo.current_calls == ["AAPL"]
+    assert result.candidates
+    assert all(leg.option_symbol.startswith("alpha_vantage-") for leg in result.candidates[0].legs)
+    assert result.snapshots[0].provider == "alpha_vantage"
+    assert result.snapshots[0].underlying_price == 100.0
+    assert result.snapshots[0].provider_capabilities[-1].supported_fields == (
+        "underlying_price",
+    )
+    assert "underlying_price_from_yahoo" in result.snapshots[0].data_quality_flags
 
 
 def test_analyze_events_falls_back_to_yahoo_only_for_current_chain(tmp_path):

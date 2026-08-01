@@ -114,7 +114,10 @@ def parse_alpha_vantage_error(payload: dict, symbol: str, collected_at: datetime
     )
 
 
-def parse_alpha_vantage_options(payload: dict, symbol: str, collected_at: datetime) -> ProviderResult:
+def parse_alpha_vantage_options(payload: object, symbol: str, collected_at: datetime) -> ProviderResult:
+    if not isinstance(payload, dict):
+        return ProviderResult.unavailable("alpha_vantage", "invalid_response")
+
     if "Information" in payload or "Note" in payload:
         return parse_alpha_vantage_error(payload, symbol, collected_at)
 

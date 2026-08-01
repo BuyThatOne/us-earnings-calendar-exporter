@@ -1,5 +1,7 @@
-import pytest
+import json
 from datetime import date, datetime, timezone
+
+import pytest
 
 from earnings_export.cli import main, run_analyze_next_week_options, run_export_next_week
 from earnings_export.export.options_report import AnalysisRunResult, OptionsArtifactPaths
@@ -119,6 +121,42 @@ def test_options_run_filters_market_cap_before_analysis_and_writes_empty_result(
     assert evr_provider_names == ["optionslam"]
     assert paths.json_path.exists()
     assert paths.markdown_path.exists()
+
+
+def test_options_run_writes_empty_artifacts_for_malformed_alpha_history(
+    monkeypatch, tmp_path,
+):
+    class Response:
+        def __init__(self, payload):
+            self.payload = payload
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self.payload
+
+    class Session:
+        def get(self, url, params, timeout):
+            if params.get("function") == "REALTIME_OPTIONS":
+                return Response({"data": []})
+            if params.get("function") == "HISTORICAL_OPTIONS":
+                return Response([])
+            return Response({"optionChain": {"result": []}})
+
+    monkeypatch.setenv("ALPHAVANTAGE_API_KEY", "fixture-key")
+    monkeypatch.setattr("earnings_export.cli.requests.Session", Session)
+    monkeypatch.setattr("earnings_export.cli.collect_events_for_week", lambda *args: [_event("AAPL")])
+    monkeypatch.setattr(
+        "earnings_export.cli.lookup_market_caps_for_events",
+        lambda *args: {"AAPL": 1_000_000_000_000},
+    )
+
+    paths = run_analyze_next_week_options(today=date(2026, 7, 31), cwd=tmp_path)
+
+    assert "No eligible candidate was found" in paths.markdown_path.read_text()
+    assert json.loads(paths.json_path.read_text())["candidates"] == []
+    assert json.loads(paths.snapshots_path.read_text())["snapshots"] == []
 
 
 def test_existing_export_command_remains_supported(monkeypatch):

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from collections import Counter
+from dataclasses import replace
 from datetime import date, datetime
+from math import isfinite
 from typing import Protocol, Sequence
 
 import requests
@@ -10,7 +12,7 @@ from earnings_export.export.options_report import AnalysisRunResult
 from earnings_export.models import EarningsEvent
 from earnings_export.options_config import AnalysisSettings
 from earnings_export.options_history import build_earnings_move_history
-from earnings_export.options_models import ProviderCapability
+from earnings_export.options_models import OptionChainSnapshot, ProviderCapability
 from earnings_export.options_strategy import build_ranked_candidates
 from earnings_export.sources.options_provider import OptionsDataProvider, ProviderResult
 from earnings_export.sources.optionslam_evr import EvrResult, OPTIONSLAM_URL
@@ -50,6 +52,47 @@ def _fetch_historical_chain(
         return _request_failed(provider)
     except ValueError:
         return ProviderResult.unavailable(provider.name, "invalid_response")
+
+
+def _valid_underlying_price(snapshot: OptionChainSnapshot) -> bool:
+    price = snapshot.underlying_price
+    return price is not None and isfinite(price) and price > 0
+
+
+def _add_yahoo_spot(
+    snapshot: OptionChainSnapshot,
+    providers: Sequence[OptionsDataProvider],
+    symbol: str,
+) -> tuple[OptionChainSnapshot, ProviderCapability | None]:
+    if snapshot.provider == "yahoo" or _valid_underlying_price(snapshot):
+        return snapshot, None
+
+    yahoo = next((provider for provider in providers if provider.name == "yahoo"), None)
+    if yahoo is None:
+        return snapshot, None
+
+    result = _fetch_current_chain(yahoo, symbol)
+    yahoo_snapshot = result.snapshot
+    if (
+        not result.capability.available
+        or yahoo_snapshot is None
+        or not _valid_underlying_price(yahoo_snapshot)
+    ):
+        return snapshot, result.capability
+
+    spot_capability = replace(
+        result.capability,
+        supported_fields=("underlying_price",),
+    )
+    return (
+        replace(
+            snapshot,
+            underlying_price=yahoo_snapshot.underlying_price,
+            provider_capabilities=snapshot.provider_capabilities + (spot_capability,),
+            data_quality_flags=snapshot.data_quality_flags + ("underlying_price_from_yahoo",),
+        ),
+        spot_capability,
+    )
 
 
 def _missing_evr(symbol: str, run_at: datetime) -> EvrResult:
@@ -107,8 +150,15 @@ def analyze_events(
             if current_result.capability.available:
                 if current_result.snapshot is not None:
                     current_snapshot = current_result.snapshot
-                    snapshots.append(current_snapshot)
                 break
+
+        if current_snapshot is not None:
+            current_snapshot, spot_capability = _add_yahoo_spot(
+                current_snapshot, ordered_providers, event.ticker,
+            )
+            if spot_capability is not None:
+                capabilities.append(spot_capability)
+            snapshots.append(current_snapshot)
 
         for provider in ordered_providers:
             if provider.name == "yahoo":
