@@ -1,6 +1,8 @@
 import json
 from datetime import date, datetime, timezone
 
+import pytest
+
 from earnings_export.export.options_report import (
     AnalysisRunResult,
     build_run_dir,
@@ -120,11 +122,59 @@ def test_artifacts_serialize_provenance_capability_status_and_candidate_warnings
     assert snapshot_payload["snapshots"][0]["contracts"][0]["expiration"] == "2026-08-07"
 
 
-def test_artifacts_never_contain_api_key(tmp_path):
-    paths = write_options_artifacts(run_with_provider_detail("key=secret-value"), tmp_path)
+@pytest.mark.parametrize(
+    ("credential_parameter", "credential_value"),
+    (
+        ("key", "key-secret"),
+        ("token", "token-secret"),
+        ("client_secret", "client-secret"),
+        ("password", "password-secret"),
+        ("signature", "signature-secret"),
+    ),
+)
+def test_artifacts_redact_credential_query_parameter_values(
+    tmp_path, credential_parameter, credential_value
+):
+    paths = write_options_artifacts(
+        run_with_provider_detail(f"https://provider.example/api?{credential_parameter}={credential_value}"),
+        tmp_path,
+    )
 
     for path in (paths.markdown_path, paths.json_path, paths.snapshots_path):
-        assert "secret-value" not in path.read_text()
+        assert credential_value not in path.read_text()
+
+
+def test_non_research_candidate_is_rejected_before_artifact_creation(tmp_path):
+    run = run_with_provider_detail("temporary failure")
+    candidate = run.candidates[0]
+    unsafe_run = AnalysisRunResult(
+        run_at=run.run_at,
+        candidates=(
+            StrategyCandidate(
+                ticker=candidate.ticker,
+                earnings_date=candidate.earnings_date,
+                strategy_type=candidate.strategy_type,
+                defined_risk=candidate.defined_risk,
+                legs=candidate.legs,
+                entry_limit=candidate.entry_limit,
+                maximum_loss=candidate.maximum_loss,
+                implied_move_pct=candidate.implied_move_pct,
+                historical_median_move_pct=candidate.historical_median_move_pct,
+                historical_iv_change_pct=candidate.historical_iv_change_pct,
+                warnings=candidate.warnings,
+                rationale=candidate.rationale,
+                execution_status="approved",
+            ),
+        ),
+        exclusions=run.exclusions,
+        capabilities=run.capabilities,
+        snapshots=run.snapshots,
+    )
+
+    with pytest.raises(ValueError, match="research_only"):
+        write_options_artifacts(unsafe_run, tmp_path)
+
+    assert not build_run_dir(tmp_path, FIXED_TIME).exists()
 
 
 def test_build_run_dir_uses_the_run_date(tmp_path):

@@ -20,7 +20,10 @@ from earnings_export.options_models import (
 
 _SCHEMA_VERSION = 1
 _CREDENTIAL_QUERY_PARAMETER = re.compile(
-    r"\b(api[_-]?key|key|token|access[_-]?token)=([^&#\s]*)", re.IGNORECASE
+    r"\b("
+    r"api[_-]?key|key|token|access[_-]?token|client[_-]?secret|password|signature"
+    r")=([^&#\s]*)",
+    re.IGNORECASE,
 )
 
 
@@ -221,6 +224,9 @@ def _write_atomically(path: Path, content: str) -> None:
 
 
 def write_options_artifacts(result: AnalysisRunResult, output_dir: Path) -> OptionsArtifactPaths:
+    if any(candidate.execution_status != "research_only" for candidate in result.candidates):
+        raise ValueError("All candidate execution_status values must be research_only")
+
     run_dir = build_run_dir(output_dir, result.run_at)
     run_dir.mkdir(parents=True, exist_ok=True)
     paths = OptionsArtifactPaths(
