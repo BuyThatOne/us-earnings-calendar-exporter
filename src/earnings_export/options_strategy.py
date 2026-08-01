@@ -103,7 +103,12 @@ def _candidate(
     history: EarningsMoveHistory,
     spread_limit: float,
 ) -> StrategyCandidate | None:
-    if not legs or not all(contract_is_liquid(leg, spread_limit) for leg in legs):
+    if (
+        not legs
+        or not isfinite(entry_limit)
+        or entry_limit <= 0
+        or not all(contract_is_liquid(leg, spread_limit) for leg in legs)
+    ):
         return None
     return StrategyCandidate(
         ticker=ticker,

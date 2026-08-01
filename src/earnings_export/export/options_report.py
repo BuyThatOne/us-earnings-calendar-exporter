@@ -223,10 +223,16 @@ def _write_atomically(path: Path, content: str) -> None:
         temporary_path.unlink(missing_ok=True)
 
 
+def _serialize_json(payload: dict[str, object]) -> str:
+    return json.dumps(payload, allow_nan=False, indent=2, sort_keys=True) + "\n"
+
+
 def write_options_artifacts(result: AnalysisRunResult, output_dir: Path) -> OptionsArtifactPaths:
     if any(candidate.execution_status != "research_only" for candidate in result.candidates):
         raise ValueError("All candidate execution_status values must be research_only")
 
+    order_intents_json = _serialize_json(_order_intents_payload(result))
+    snapshots_json = _serialize_json(_snapshots_payload(result))
     run_dir = build_run_dir(output_dir, result.run_at)
     run_dir.mkdir(parents=True, exist_ok=True)
     paths = OptionsArtifactPaths(
@@ -235,10 +241,6 @@ def write_options_artifacts(result: AnalysisRunResult, output_dir: Path) -> Opti
         snapshots_path=run_dir / "option_chain_snapshots.json",
     )
     _write_atomically(paths.markdown_path, _markdown(result))
-    _write_atomically(
-        paths.json_path, json.dumps(_order_intents_payload(result), indent=2, sort_keys=True) + "\n"
-    )
-    _write_atomically(
-        paths.snapshots_path, json.dumps(_snapshots_payload(result), indent=2, sort_keys=True) + "\n"
-    )
+    _write_atomically(paths.json_path, order_intents_json)
+    _write_atomically(paths.snapshots_path, snapshots_json)
     return paths

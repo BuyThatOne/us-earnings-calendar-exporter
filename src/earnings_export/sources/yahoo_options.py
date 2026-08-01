@@ -15,9 +15,18 @@ SUPPORTED_FIELDS = ("bid", "ask", "implied_volatility", "open_interest")
 
 
 def _float_or_none(value: object) -> float | None:
-    if value is None:
+    if value in (None, "", "None"):
         return None
-    return float(value)
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if isfinite(parsed) else None
+
+
+def _int_or_none(value: object) -> int | None:
+    parsed = _float_or_none(value)
+    return int(parsed) if parsed is not None else None
 
 
 def _parse_expiration(value: object) -> date | None:
@@ -33,24 +42,49 @@ def _parse_expiration(value: object) -> date | None:
         return None
 
 
-def _parse_contract(record: dict, option_type: str, expiration: date | None) -> OptionContract:
-    bid = _float_or_none(record.get("bid")) or 0.0
-    ask = _float_or_none(record.get("ask")) or 0.0
+def _parse_quote_timestamp(value: object) -> datetime | None:
+    timestamp = _float_or_none(value)
+    if timestamp is None:
+        return None
+    try:
+        return datetime.fromtimestamp(timestamp, tz=timezone.utc)
+    except (OverflowError, OSError, ValueError):
+        return None
+
+
+def _parse_contract(record: dict, option_type: str, expiration: date | None) -> OptionContract | None:
+    raw_bid = record.get("bid")
+    raw_ask = record.get("ask")
+    raw_strike = record.get("strike")
+    raw_timestamp = record.get("lastTradeDate")
+    bid = _float_or_none(raw_bid)
+    ask = _float_or_none(raw_ask)
+    strike = _float_or_none(raw_strike)
+    quote_timestamp = _parse_quote_timestamp(raw_timestamp)
+    if (
+        (raw_bid not in (None, "", "None") and bid is None)
+        or (raw_ask not in (None, "", "None") and ask is None)
+        or (raw_strike not in (None, "", "None") and strike is None)
+        or (raw_timestamp is not None and quote_timestamp is None)
+    ):
+        return None
+
+    bid = bid or 0.0
+    ask = ask or 0.0
     midpoint = (bid + ask) / 2 if bid > 0 and ask > 0 else None
     spread_pct = (ask - bid) / midpoint if midpoint else None
-    timestamp = record.get("lastTradeDate")
     return OptionContract(
         option_symbol=str(record.get("contractSymbol") or ""),
         option_type=option_type,
         expiration=expiration,
-        strike=_float_or_none(record.get("strike")) or 0.0,
+        strike=strike or 0.0,
         bid=bid,
         ask=ask,
         midpoint=midpoint,
         bid_ask_spread_pct=spread_pct,
         implied_volatility=_float_or_none(record.get("impliedVolatility")),
-        open_interest=record.get("openInterest"),
-        quote_timestamp=datetime.fromtimestamp(timestamp, tz=timezone.utc) if timestamp else None,
+        open_interest=_int_or_none(record.get("openInterest")),
+        quote_timestamp=quote_timestamp,
     )
 
 
@@ -65,6 +99,7 @@ def parse_yahoo_options(payload: dict, symbol: str, collected_at: datetime) -> P
         return ProviderResult.unavailable("yahoo", "invalid_response")
     contracts = []
     invalid_option_sets = 0
+    invalid_contracts = 0
     for option_set in option_sets:
         if not isinstance(option_set, dict):
             invalid_option_sets += 1
@@ -76,9 +111,15 @@ def parse_yahoo_options(payload: dict, symbol: str, collected_at: datetime) -> P
         for option_type, field in (("call", "calls"), ("put", "puts")):
             records = option_set.get(field, [])
             if isinstance(records, list):
-                contracts.extend(
-                    _parse_contract(record, option_type, expiration) for record in records if isinstance(record, dict)
-                )
+                for record in records:
+                    if not isinstance(record, dict):
+                        invalid_contracts += 1
+                        continue
+                    contract = _parse_contract(record, option_type, expiration)
+                    if contract is None:
+                        invalid_contracts += 1
+                        continue
+                    contracts.append(contract)
 
     if not contracts:
         return ProviderResult.unavailable("yahoo", "invalid_response")
@@ -86,7 +127,7 @@ def parse_yahoo_options(payload: dict, symbol: str, collected_at: datetime) -> P
     capability = ProviderCapability(
         provider="yahoo",
         available=True,
-        code="partial_data" if invalid_option_sets else "available",
+        code="partial_data" if invalid_option_sets or invalid_contracts else "available",
         supported_fields=SUPPORTED_FIELDS,
     )
     snapshot = OptionChainSnapshot(
@@ -96,7 +137,10 @@ def parse_yahoo_options(payload: dict, symbol: str, collected_at: datetime) -> P
         provider_capabilities=(capability,),
         underlying_price=_float_or_none(chain.get("quote", {}).get("regularMarketPrice")),
         contracts=tuple(contracts),
-        data_quality_flags=("partial_option_set_data",) if invalid_option_sets else (),
+        data_quality_flags=(
+            *(("partial_option_set_data",) if invalid_option_sets else ()),
+            *(("partial_contract_data",) if invalid_contracts else ()),
+        ),
     )
     return ProviderResult(snapshot=snapshot, capability=capability)
 

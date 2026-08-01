@@ -1,4 +1,5 @@
 import json
+from dataclasses import replace
 from datetime import date, datetime, timezone
 
 import pytest
@@ -172,6 +173,19 @@ def test_non_research_candidate_is_rejected_before_artifact_creation(tmp_path):
     )
 
     with pytest.raises(ValueError, match="research_only"):
+        write_options_artifacts(unsafe_run, tmp_path)
+
+    assert not build_run_dir(tmp_path, FIXED_TIME).exists()
+
+
+def test_artifacts_reject_nonfinite_values_before_writing_json(tmp_path):
+    run = run_with_provider_detail("temporary failure")
+    unsafe_run = replace(
+        run,
+        snapshots=(replace(run.snapshots[0], underlying_price=float("nan")),),
+    )
+
+    with pytest.raises(ValueError):
         write_options_artifacts(unsafe_run, tmp_path)
 
     assert not build_run_dir(tmp_path, FIXED_TIME).exists()

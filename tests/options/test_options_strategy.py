@@ -119,6 +119,27 @@ def test_candidate_is_omitted_when_any_selected_leg_exceeds_the_spread_limit():
     assert all(contract_is_liquid(leg, 0.10) for candidate in candidates for leg in candidate.legs)
 
 
+def test_candidates_omit_nonpositive_credit_and_debit_entries():
+    chain = _chain()
+    contracts = tuple(
+        replace(contract, bid=5.76, ask=6.24)
+        if contract.option_type == "put" and contract.strike == 90.0
+        else replace(contract, bid=3.84, ask=4.16)
+        if contract.option_type == "call" and contract.strike == 100.0
+        and contract.expiration == BACK_EXPIRATION
+        else contract
+        for contract in chain.contracts
+    )
+
+    candidates = build_ranked_candidates(
+        "AAPL", EARNINGS_DATE, replace(chain, contracts=contracts), _history(), 0.10,
+    )
+
+    assert "iron_condor" not in {candidate.strategy_type for candidate in candidates}
+    assert "calendar" not in {candidate.strategy_type for candidate in candidates}
+    assert all(candidate.entry_limit > 0 for candidate in candidates)
+
+
 def test_candidates_require_a_positive_spot_and_liquid_near_money_pair():
     assert build_ranked_candidates(
         "AAPL", EARNINGS_DATE, replace(_chain(), underlying_price=None), _history(), 0.10,
