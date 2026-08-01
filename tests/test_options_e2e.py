@@ -78,7 +78,10 @@ class FixedDateTime(datetime):
 
 def _run_options_command(monkeypatch, tmp_path: Path, alpha_current_fixture: str) -> Path:
     session = FixtureSession(alpha_current_fixture)
+    output_dir = tmp_path / "exports" / "earnings-options"
     monkeypatch.setenv("ALPHAVANTAGE_API_KEY", FIXTURE_API_KEY)
+    monkeypatch.setenv("EARNINGS_OPTIONS_OUTPUT_DIR", str(output_dir))
+    monkeypatch.setenv("EARNINGS_OPTIONS_MAX_SPREAD_PCT", "0.10")
     monkeypatch.setattr("earnings_export.cli.requests.Session", lambda: session)
     monkeypatch.setattr("earnings_export.cli.date", FixedDate)
     monkeypatch.setattr("earnings_export.cli.datetime", FixedDateTime)
@@ -86,7 +89,7 @@ def _run_options_command(monkeypatch, tmp_path: Path, alpha_current_fixture: str
 
     assert main(["analyze-next-week-options"]) == 0
 
-    return tmp_path / "exports" / "earnings-options" / RUN_DATE.isoformat()
+    return output_dir / RUN_DATE.isoformat()
 
 
 def test_options_command_writes_fixture_backed_research_only_candidate_artifacts(
