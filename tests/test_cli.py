@@ -12,6 +12,7 @@ from earnings_export.cli import (
 )
 from earnings_export.export.options_report import AnalysisRunResult, OptionsArtifactPaths
 from earnings_export.models import EarningsEvent
+from earnings_export.sources.options_provider import ProviderResult
 
 
 FIXED_TIME = datetime(2026, 7, 31, 14, 30, tzinfo=timezone.utc)
@@ -205,10 +206,30 @@ def test_options_run_filters_market_cap_before_analysis_and_writes_empty_result(
     events = [_event("AAPL"), _event("SMALL")]
     analyzed_events = []
     evr_provider_names = []
+    closed = []
+
+    class Reader:
+        def __init__(self, timeout_seconds, delay_seconds):
+            pass
+
+        def close(self):
+            closed.append("reader")
+
+    class BrowserProvider:
+        name = "yahoo_browser"
+
+        def __init__(self, reader, clock):
+            self.reader = reader
+
+        def close(self):
+            self.reader.close()
+
     monkeypatch.setattr(
         "earnings_export.cli.get_next_week_window",
         lambda today: (date(2026, 8, 3), date(2026, 8, 7)),
     )
+    monkeypatch.setattr("earnings_export.cli.PlaywrightYahooPageReader", Reader)
+    monkeypatch.setattr("earnings_export.cli.YahooBrowserOptionsProvider", BrowserProvider)
     monkeypatch.setattr("earnings_export.cli.collect_events_for_week", lambda *args: events)
     monkeypatch.setattr(
         "earnings_export.cli.lookup_market_caps_for_events",
@@ -228,6 +249,38 @@ def test_options_run_filters_market_cap_before_analysis_and_writes_empty_result(
     assert evr_provider_names == ["optionslam"]
     assert paths.json_path.exists()
     assert paths.markdown_path.exists()
+    assert closed == ["reader"]
+
+
+def test_options_run_closes_browser_provider_when_analysis_raises(monkeypatch, tmp_path):
+    closed = []
+
+    class Reader:
+        def __init__(self, timeout_seconds, delay_seconds):
+            self.timeout_seconds = timeout_seconds
+            self.delay_seconds = delay_seconds
+
+        def close(self):
+            closed.append("reader")
+
+    class BrowserProvider:
+        name = "yahoo_browser"
+
+        def __init__(self, reader, clock):
+            self.reader = reader
+            self.clock = clock
+
+        def close(self):
+            self.reader.close()
+
+    monkeypatch.setattr("earnings_export.cli.PlaywrightYahooPageReader", Reader)
+    monkeypatch.setattr("earnings_export.cli.YahooBrowserOptionsProvider", BrowserProvider)
+    monkeypatch.setattr("earnings_export.cli.analyze_events", lambda *args: (_ for _ in ()).throw(RuntimeError("analysis failed")))
+
+    with pytest.raises(RuntimeError, match="analysis failed"):
+        run_analyze_next_week_options(today=date(2026, 7, 31), cwd=tmp_path)
+
+    assert closed == ["reader"]
 
 
 def test_options_run_writes_empty_artifacts_for_malformed_alpha_history(
@@ -251,8 +304,32 @@ def test_options_run_writes_empty_artifacts_for_malformed_alpha_history(
                 return Response([])
             return Response({"optionChain": {"result": []}})
 
+    class BrowserProvider:
+        name = "yahoo_browser"
+
+        def __init__(self, reader, clock):
+            self.reader = reader
+
+        def fetch_current_chain(self, symbol):
+            return ProviderResult.unavailable(self.name, "browser_unavailable")
+
+        def fetch_historical_chain(self, symbol, as_of):
+            return ProviderResult.unavailable(self.name, "unsupported")
+
+        def close(self):
+            self.reader.close()
+
+    class Reader:
+        def __init__(self, timeout_seconds, delay_seconds):
+            pass
+
+        def close(self):
+            pass
+
     monkeypatch.setenv("ALPHAVANTAGE_API_KEY", "fixture-key")
     monkeypatch.setattr("earnings_export.cli.requests.Session", Session)
+    monkeypatch.setattr("earnings_export.cli.PlaywrightYahooPageReader", Reader)
+    monkeypatch.setattr("earnings_export.cli.YahooBrowserOptionsProvider", BrowserProvider)
     monkeypatch.setattr("earnings_export.cli.collect_events_for_week", lambda *args: [_event("AAPL")])
     monkeypatch.setattr(
         "earnings_export.cli.lookup_market_caps_for_events",

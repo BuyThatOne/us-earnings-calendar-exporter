@@ -14,7 +14,7 @@ from earnings_export.credentials import DEFAULT_CREDENTIALS_PATH
 from earnings_export.export.csv_writer import write_export_csv
 from earnings_export.export.options_report import OptionsArtifactPaths, write_options_artifacts
 from earnings_export.options_config import load_analysis_settings
-from earnings_export.options_pipeline import analyze_events
+from earnings_export.options_pipeline import analyze_events, close_options_providers
 from earnings_export.pipeline import (
     build_export_rows,
     collect_events_for_week,
@@ -22,6 +22,10 @@ from earnings_export.pipeline import (
 )
 from earnings_export.sources.alpha_vantage_options import AlphaVantageOptionsProvider
 from earnings_export.sources.optionslam_evr import OptionSlamEvrProvider
+from earnings_export.sources.yahoo_browser_options import (
+    PlaywrightYahooPageReader,
+    YahooBrowserOptionsProvider,
+)
 from earnings_export.sources.yahoo_options import YahooOptionsProvider
 
 
@@ -118,18 +122,29 @@ def run_analyze_next_week_options(
         if market_caps.get(event.ticker, 0) >= MIN_OPTIONS_MARKET_CAP
     ]
     run_at = datetime.now(timezone.utc).replace(microsecond=0)
+    browser_reader = PlaywrightYahooPageReader(
+        settings.browser_timeout_seconds,
+        settings.browser_delay_seconds,
+    )
     providers = (
         AlphaVantageOptionsProvider(settings, session),
         YahooOptionsProvider(session),
+        YahooBrowserOptionsProvider(
+            browser_reader,
+            lambda: datetime.now(timezone.utc).replace(microsecond=0),
+        ),
     )
-    result = analyze_events(
-        filtered_events,
-        providers,
-        settings,
-        run_at,
-        OptionSlamEvrProvider(session),
-    )
-    return write_options_artifacts(result, settings.output_dir)
+    try:
+        result = analyze_events(
+            filtered_events,
+            providers,
+            settings,
+            run_at,
+            OptionSlamEvrProvider(session),
+        )
+        return write_options_artifacts(result, settings.output_dir)
+    finally:
+        close_options_providers(providers)
 
 
 def main(argv: list[str] | None = None) -> int:

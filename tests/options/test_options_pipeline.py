@@ -105,6 +105,13 @@ def _settings(tmp_path) -> AnalysisSettings:
     )
 
 
+def _settings_with_browser(tmp_path) -> AnalysisSettings:
+    return replace(
+        _settings(tmp_path),
+        provider_order=("alpha_vantage", "yahoo", "yahoo_browser"),
+    )
+
+
 def test_analyze_events_uses_alpha_current_chain_without_calling_yahoo(tmp_path):
     alpha = RecordingProvider("alpha_vantage", _current_result("alpha_vantage"))
     yahoo = RecordingProvider("yahoo", _current_result("yahoo"))
@@ -164,6 +171,62 @@ def test_analyze_events_falls_back_to_yahoo_only_for_current_chain(tmp_path):
     ]
 
 
+def test_analyze_events_falls_back_to_browser_after_alpha_and_yahoo_fail(tmp_path):
+    alpha = RecordingProvider(
+        "alpha_vantage",
+        ProviderResult.unavailable("alpha_vantage", "missing_api_key"),
+    )
+    yahoo = RecordingProvider(
+        "yahoo",
+        ProviderResult.unavailable("yahoo", "request_failed"),
+    )
+    browser = RecordingProvider("yahoo_browser", _current_result("yahoo_browser"))
+
+    result = analyze_events(
+        [_event()], [browser, yahoo, alpha], _settings_with_browser(tmp_path), FIXED_TIME,
+    )
+
+    assert alpha.current_calls == ["AAPL"]
+    assert yahoo.current_calls == ["AAPL"]
+    assert browser.current_calls == ["AAPL"]
+    assert alpha.historical_calls == [("AAPL", FIXED_TIME.date())]
+    assert yahoo.historical_calls == []
+    assert browser.historical_calls == []
+    assert result.snapshots[0].provider == "yahoo_browser"
+    assert [capability.provider for capability in result.capabilities] == [
+        "alpha_vantage",
+        "yahoo",
+        "yahoo_browser",
+        "alpha_vantage",
+        "optionslam",
+    ]
+
+
+def test_analyze_events_uses_browser_spot_after_yahoo_fails(tmp_path):
+    alpha_result = _current_result("alpha_vantage")
+    alpha = RecordingProvider(
+        "alpha_vantage",
+        replace(alpha_result, snapshot=replace(alpha_result.snapshot, underlying_price=None)),
+    )
+    yahoo = RecordingProvider(
+        "yahoo",
+        ProviderResult.unavailable("yahoo", "request_failed"),
+    )
+    browser = RecordingProvider("yahoo_browser", _current_result("yahoo_browser"))
+
+    result = analyze_events(
+        [_event()], [alpha, yahoo, browser], _settings_with_browser(tmp_path), FIXED_TIME,
+    )
+
+    assert yahoo.current_calls == ["AAPL"]
+    assert browser.current_calls == ["AAPL"]
+    assert result.snapshots[0].provider == "alpha_vantage"
+    assert result.snapshots[0].underlying_price == 100.0
+    assert result.snapshots[0].provider_capabilities[-1].provider == "yahoo_browser"
+    assert result.capabilities[1].provider == "yahoo"
+    assert result.capabilities[1].code == "request_failed"
+
+
 def test_analyze_events_uses_available_evr_as_optional_context(tmp_path):
     alpha = RecordingProvider("alpha_vantage", _current_result("alpha_vantage"))
     evr = RecordingEvrProvider(
@@ -190,7 +253,7 @@ def test_analyze_events_uses_available_evr_as_optional_context(tmp_path):
     )
 
 
-def test_analyze_events_does_not_fallback_when_alpha_reports_current_capability(tmp_path):
+def test_analyze_events_falls_back_when_alpha_reports_capability_without_snapshot(tmp_path):
     alpha = RecordingProvider(
         "alpha_vantage",
         ProviderResult(
@@ -202,8 +265,8 @@ def test_analyze_events_does_not_fallback_when_alpha_reports_current_capability(
 
     result = analyze_events([_event()], [alpha, yahoo], _settings(tmp_path), FIXED_TIME)
 
-    assert yahoo.current_calls == []
-    assert result.exclusions == {"missing_current_chain": 1}
+    assert yahoo.current_calls == ["AAPL"]
+    assert result.snapshots[0].provider == "yahoo"
 
 
 def test_analyze_events_records_exclusion_when_no_current_chain_is_available(tmp_path):

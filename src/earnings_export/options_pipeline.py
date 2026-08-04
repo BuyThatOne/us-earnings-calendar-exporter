@@ -30,6 +30,17 @@ def _ordered_providers(
     return tuple(by_name[name] for name in settings.provider_order if name in by_name)
 
 
+def close_options_providers(providers: Sequence[OptionsDataProvider]) -> None:
+    """Release resources held by providers that expose a close method."""
+    for provider in providers:
+        close = getattr(provider, "close", None)
+        if callable(close):
+            try:
+                close()
+            except Exception:
+                pass
+
+
 def _request_failed(provider: OptionsDataProvider) -> ProviderResult:
     return ProviderResult.unavailable(provider.name, "request_failed")
 
@@ -63,36 +74,45 @@ def _add_yahoo_spot(
     snapshot: OptionChainSnapshot,
     providers: Sequence[OptionsDataProvider],
     symbol: str,
-) -> tuple[OptionChainSnapshot, ProviderCapability | None]:
-    if snapshot.provider == "yahoo" or _valid_underlying_price(snapshot):
-        return snapshot, None
+) -> tuple[OptionChainSnapshot, tuple[ProviderCapability, ...]]:
+    if snapshot.provider == "yahoo_browser" or _valid_underlying_price(snapshot):
+        return snapshot, ()
 
-    yahoo = next((provider for provider in providers if provider.name == "yahoo"), None)
-    if yahoo is None:
-        return snapshot, None
+    capabilities = []
+    providers_by_name = {provider.name: provider for provider in providers}
+    for provider_name in ("yahoo", "yahoo_browser"):
+        provider = providers_by_name.get(provider_name)
+        if provider is None or provider.name == snapshot.provider:
+            continue
+        result = _fetch_current_chain(provider, symbol)
+        provider_snapshot = result.snapshot
+        if (
+            not result.capability.available
+            or provider_snapshot is None
+            or not _valid_underlying_price(provider_snapshot)
+        ):
+            capabilities.append(result.capability)
+            continue
 
-    result = _fetch_current_chain(yahoo, symbol)
-    yahoo_snapshot = result.snapshot
-    if (
-        not result.capability.available
-        or yahoo_snapshot is None
-        or not _valid_underlying_price(yahoo_snapshot)
-    ):
-        return snapshot, result.capability
+        spot_capability = replace(
+            result.capability,
+            supported_fields=("underlying_price",),
+        )
+        capabilities.append(spot_capability)
+        return (
+            replace(
+                snapshot,
+                underlying_price=provider_snapshot.underlying_price,
+                provider_capabilities=snapshot.provider_capabilities + (spot_capability,),
+                data_quality_flags=(
+                    snapshot.data_quality_flags
+                    + (f"underlying_price_from_{provider.name}",)
+                ),
+            ),
+            tuple(capabilities),
+        )
 
-    spot_capability = replace(
-        result.capability,
-        supported_fields=("underlying_price",),
-    )
-    return (
-        replace(
-            snapshot,
-            underlying_price=yahoo_snapshot.underlying_price,
-            provider_capabilities=snapshot.provider_capabilities + (spot_capability,),
-            data_quality_flags=snapshot.data_quality_flags + ("underlying_price_from_yahoo",),
-        ),
-        spot_capability,
-    )
+    return snapshot, tuple(capabilities)
 
 
 def _missing_evr(symbol: str, run_at: datetime) -> EvrResult:
@@ -147,21 +167,19 @@ def analyze_events(
         for provider in ordered_providers:
             current_result = _fetch_current_chain(provider, event.ticker)
             capabilities.append(current_result.capability)
-            if current_result.capability.available:
-                if current_result.snapshot is not None:
-                    current_snapshot = current_result.snapshot
+            if current_result.capability.available and current_result.snapshot is not None:
+                current_snapshot = current_result.snapshot
                 break
 
         if current_snapshot is not None:
-            current_snapshot, spot_capability = _add_yahoo_spot(
+            current_snapshot, spot_capabilities = _add_yahoo_spot(
                 current_snapshot, ordered_providers, event.ticker,
             )
-            if spot_capability is not None:
-                capabilities.append(spot_capability)
+            capabilities.extend(spot_capabilities)
             snapshots.append(current_snapshot)
 
         for provider in ordered_providers:
-            if provider.name == "yahoo":
+            if provider.name in {"yahoo", "yahoo_browser"}:
                 continue
             historical_result = _fetch_historical_chain(
                 provider, event.ticker, run_at.date(),

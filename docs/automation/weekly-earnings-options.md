@@ -20,6 +20,18 @@ automation environment first, then the owner-only local credentials file. Do not
 place the key value in this repository, the prompt, logs, or generated
 artifacts.
 
+Install the standalone Chromium runtime used by the Yahoo browser fallback:
+
+```bash
+python -m playwright install chromium
+```
+
+The fallback has a 20-second page timeout and a one-second delay between ticker
+pages. Set `EARNINGS_OPTIONS_BROWSER_TIMEOUT_SECONDS` to a positive number or
+`EARNINGS_OPTIONS_BROWSER_DELAY_SECONDS` to a non-negative number to override
+those defaults. It uses an isolated Playwright Chromium session and does not use
+the local Chrome profile.
+
 ## Manual Run
 
 From the project root, run:
