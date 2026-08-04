@@ -1,4 +1,6 @@
+import json
 from datetime import date, datetime, timezone
+from pathlib import Path
 
 import earnings_export.sources.yahoo_browser_options as yahoo_browser_options
 from earnings_export.sources.yahoo_browser_options import (
@@ -13,8 +15,13 @@ from earnings_export.sources.yahoo_browser_options import (
 FIXED_TIME = datetime(2026, 7, 31, 14, 0, tzinfo=timezone.utc)
 
 
+FIXTURES = Path(__file__).parents[1] / "fixtures" / "yahoo_browser_options"
+
+
 class _FakeResponse:
-    ok = True
+    def __init__(self, status: int = 200) -> None:
+        self.status = status
+        self.ok = status < 400
 
 
 class _FakeCells:
@@ -35,8 +42,20 @@ class _FakeRow:
 
 
 class _FakeRows:
-    def __init__(self, rows: tuple[_FakeRow, ...]) -> None:
+    def __init__(self, rows: tuple[_FakeRow, ...], waits: list[tuple[str, float]]) -> None:
         self._rows = rows
+        self._waits = waits
+
+    @property
+    def first(self) -> "_FakeRows":
+        return self
+
+    def wait_for(self, *, state: str, timeout: float) -> None:
+        self._waits.append((state, timeout))
+
+    def locator(self, selector: str) -> "_FakeRows":
+        assert selector == "tbody tr"
+        return self
 
     def count(self) -> int:
         return len(self._rows)
@@ -54,9 +73,17 @@ class _FakeText:
 
 
 class _FakePage:
-    def __init__(self, events: list[str], navigation_error: Exception | None = None) -> None:
+    def __init__(
+        self,
+        events: list[str],
+        navigation_error: Exception | None = None,
+        response_status: int = 200,
+    ) -> None:
         self._events = events
         self._navigation_error = navigation_error
+        self._response_status = response_status
+        self._fixture = json.loads((FIXTURES / "current_page.json").read_text())
+        self.row_waits: list[tuple[str, float]] = []
         self.url: str | None = None
 
     def goto(self, url: str, *, wait_until: str, timeout: float) -> _FakeResponse:
@@ -66,18 +93,27 @@ class _FakePage:
         assert timeout == 20_000
         if self._navigation_error is not None:
             raise self._navigation_error
-        return _FakeResponse()
+        return _FakeResponse(self._response_status)
 
     def locator(self, selector: str):
         if selector == "body":
-            return _FakeText(("AAPL Options",))
-        if "regularMarketPrice" in selector or "qsp-price" in selector:
-            return _FakeText(("$210.50",))
-        if ".calls" in selector:
-            return _FakeRows((_FakeRow(_page_data().rows[0].cells),))
-        if ".puts" in selector:
-            return _FakeRows((_FakeRow(_page_data().rows[1].cells),))
-        return _FakeRows(())
+            return _FakeText((self._fixture["body_text"],))
+        if selector == '[data-testid="qsp-price"]':
+            return _FakeText((self._fixture["quote"]["qsp_price"],))
+        if selector in {
+            '#quote-header-info fin-streamer[data-field="regularMarketPrice"]',
+            '[data-testid="quote-header"] fin-streamer[data-field="regularMarketPrice"]',
+        }:
+            return _FakeText((self._fixture["quote"]["header_market_price"],))
+        if "regularMarketPrice" in selector:
+            return _FakeText((self._fixture["quote"]["sidebar_market_price"],))
+        return _FakeRows((), self.row_waits)
+
+    def get_by_role(self, role: str, *, name: str, exact: bool):
+        assert role == "table"
+        assert exact is True
+        rows = tuple(_FakeRow(tuple(cells)) for cells in self._fixture["tables"].get(name, ()))
+        return _FakeRows(rows, self.row_waits)
 
     def close(self) -> None:
         self._events.append("page.close")
@@ -141,10 +177,10 @@ class _FakePlaywrightManager:
 
 
 def _playwright_runtime(
-    *, navigation_error: Exception | None = None,
+    *, navigation_error: Exception | None = None, response_status: int = 200,
 ) -> tuple[_FakePlaywrightManager, _FakePage, list[str]]:
     events: list[str] = []
-    page = _FakePage(events, navigation_error)
+    page = _FakePage(events, navigation_error, response_status)
     context = _FakeContext(page, events)
     browser = _FakeBrowser(context, events)
     chromium = _FakeChromium(browser, events)
@@ -162,6 +198,17 @@ def test_playwright_reader_maps_navigation_timeout_to_page_unavailable(monkeypat
     assert result.capability.code == "browser_page_unavailable"
 
 
+def test_playwright_reader_maps_http_429_to_browser_rate_limited(monkeypatch):
+    runtime, _, _ = _playwright_runtime(response_status=429)
+    monkeypatch.setattr(yahoo_browser_options, "_sync_playwright", lambda: runtime)
+    reader = PlaywrightYahooPageReader(timeout_seconds=20.0, delay_seconds=0.0)
+
+    result = YahooBrowserOptionsProvider(reader, clock=lambda: FIXED_TIME).fetch_current_chain("AAPL")
+
+    assert result.snapshot is None
+    assert result.capability.code == "browser_rate_limited"
+
+
 def test_playwright_reader_maps_startup_failure_to_browser_unavailable(monkeypatch):
     runtime = _FakePlaywrightManager(None, start_error=RuntimeError("Chromium is unavailable"))
     monkeypatch.setattr(yahoo_browser_options, "_sync_playwright", lambda: runtime)
@@ -173,7 +220,7 @@ def test_playwright_reader_maps_startup_failure_to_browser_unavailable(monkeypat
     assert result.capability.code == "browser_unavailable"
 
 
-def test_playwright_reader_extracts_rendered_content_and_closes_resources(monkeypatch):
+def test_playwright_reader_extracts_captured_current_page_and_closes_resources(monkeypatch):
     runtime, page, events = _playwright_runtime()
     monkeypatch.setattr(yahoo_browser_options, "_sync_playwright", lambda: runtime)
     reader = PlaywrightYahooPageReader(timeout_seconds=20.0, delay_seconds=0.0)
@@ -184,6 +231,7 @@ def test_playwright_reader_extracts_rendered_content_and_closes_resources(monkey
     assert page.url == "https://ca.finance.yahoo.com/quote/AAPL/options/"
     assert page_data.underlying_price == "$210.50"
     assert page_data.rows == _page_data().rows
+    assert page.row_waits == [("visible", 20_000.0), ("visible", 20_000.0)]
     assert events == [
         "chromium.launch",
         "browser.new_context",

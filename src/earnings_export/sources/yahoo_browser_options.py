@@ -56,18 +56,23 @@ class _BrowserPageUnavailableError(RuntimeError):
     pass
 
 
+class _BrowserRateLimitedError(RuntimeError):
+    pass
+
+
 class _BrowserUnavailableError(RuntimeError):
     pass
 
 
 class PlaywrightYahooPageReader:
     _QUOTE_SELECTORS = (
-        'fin-streamer[data-field="regularMarketPrice"]',
         '[data-testid="qsp-price"]',
+        '#quote-header-info fin-streamer[data-field="regularMarketPrice"]',
+        '[data-testid="quote-header"] fin-streamer[data-field="regularMarketPrice"]',
     )
-    _ROW_SELECTORS = (
-        ("call", "table.calls tbody tr"),
-        ("put", "table.puts tbody tr"),
+    _OPTION_TABLES = (
+        ("call", "Calls"),
+        ("put", "Puts"),
     )
 
     def __init__(self, timeout_seconds: float, delay_seconds: float) -> None:
@@ -102,9 +107,16 @@ class PlaywrightYahooPageReader:
         return next((text.strip() for text in texts if text.strip()), None)
 
     @classmethod
-    def _extract_rows(cls, page, option_type: str, selector: str) -> tuple[YahooBrowserOptionRow, ...]:
+    def _extract_rows(
+        cls,
+        page,
+        option_type: str,
+        table_name: str,
+        timeout_ms: float,
+    ) -> tuple[YahooBrowserOptionRow, ...]:
         try:
-            rows = page.locator(selector)
+            rows = page.get_by_role("table", name=table_name, exact=True).locator("tbody tr")
+            rows.first.wait_for(state="visible", timeout=timeout_ms)
             extracted = []
             for index in range(rows.count()):
                 cells = tuple(text.strip() for text in rows.nth(index).locator("td").all_inner_texts())
@@ -129,6 +141,8 @@ class PlaywrightYahooPageReader:
                 wait_until="domcontentloaded",
                 timeout=self._timeout_seconds * 1_000,
             )
+            if response is not None and response.status == 429:
+                raise _BrowserRateLimitedError("Yahoo options page is rate limited")
             if response is None or not response.ok:
                 raise _BrowserPageUnavailableError("Yahoo options page is unavailable")
 
@@ -141,8 +155,13 @@ class PlaywrightYahooPageReader:
             )
             rows = tuple(
                 row
-                for option_type, selector in self._ROW_SELECTORS
-                for row in self._extract_rows(page, option_type, selector)
+                for option_type, table_name in self._OPTION_TABLES
+                for row in self._extract_rows(
+                    page,
+                    option_type,
+                    table_name,
+                    self._timeout_seconds * 1_000,
+                )
             )
             return YahooBrowserPageData(
                 body_text=body_text,
@@ -150,6 +169,8 @@ class PlaywrightYahooPageReader:
                 rows=rows,
             )
         except _BrowserPageUnavailableError:
+            raise
+        except _BrowserRateLimitedError:
             raise
         except Exception as error:
             raise _BrowserPageUnavailableError("Yahoo options page could not be read") from error
@@ -302,6 +323,8 @@ class YahooBrowserOptionsProvider:
     def fetch_current_chain(self, symbol: str) -> ProviderResult:
         try:
             page_data = self._reader.read_current_page(symbol)
+        except _BrowserRateLimitedError:
+            return ProviderResult.unavailable(self.name, "browser_rate_limited")
         except _BrowserPageUnavailableError:
             return ProviderResult.unavailable(self.name, "browser_page_unavailable")
         except _BrowserUnavailableError:

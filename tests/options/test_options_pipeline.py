@@ -253,7 +253,7 @@ def test_analyze_events_uses_available_evr_as_optional_context(tmp_path):
     )
 
 
-def test_analyze_events_does_not_fallback_when_alpha_reports_current_capability(tmp_path):
+def test_analyze_events_falls_back_when_alpha_reports_capability_without_snapshot(tmp_path):
     alpha = RecordingProvider(
         "alpha_vantage",
         ProviderResult(
@@ -265,8 +265,8 @@ def test_analyze_events_does_not_fallback_when_alpha_reports_current_capability(
 
     result = analyze_events([_event()], [alpha, yahoo], _settings(tmp_path), FIXED_TIME)
 
-    assert yahoo.current_calls == []
-    assert result.exclusions == {"missing_current_chain": 1}
+    assert yahoo.current_calls == ["AAPL"]
+    assert result.snapshots[0].provider == "yahoo"
 
 
 def test_analyze_events_records_exclusion_when_no_current_chain_is_available(tmp_path):

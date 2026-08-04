@@ -167,9 +167,8 @@ def analyze_events(
         for provider in ordered_providers:
             current_result = _fetch_current_chain(provider, event.ticker)
             capabilities.append(current_result.capability)
-            if current_result.capability.available:
-                if current_result.snapshot is not None:
-                    current_snapshot = current_result.snapshot
+            if current_result.capability.available and current_result.snapshot is not None:
+                current_snapshot = current_result.snapshot
                 break
 
         if current_snapshot is not None:
