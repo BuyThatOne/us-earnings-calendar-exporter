@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import errno
 import os
+import stat
 import sys
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -26,10 +28,59 @@ from earnings_export.sources.yahoo_options import YahooOptionsProvider
 MIN_OPTIONS_MARKET_CAP = 50_000_000_000
 
 
+def _validate_credentials_path(path: Path) -> bool:
+    try:
+        path_stat = path.lstat()
+    except FileNotFoundError:
+        return False
+    if stat.S_ISLNK(path_stat.st_mode):
+        raise ValueError("credentials file must not be a symbolic link")
+    if not stat.S_ISREG(path_stat.st_mode):
+        raise ValueError("credentials path must be a regular file")
+    return True
+
+
+def _open_existing_credentials_file(path: Path) -> int:
+    flags = os.O_WRONLY
+    if os.name == "posix":
+        flags |= os.O_NOFOLLOW
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as error:
+        if error.errno == errno.ELOOP:
+            raise ValueError("credentials file must not be a symbolic link") from error
+        raise
+
+    try:
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise ValueError("credentials path must be a regular file")
+    except BaseException:
+        os.close(descriptor)
+        raise
+    return descriptor
+
+
 def initialize_credentials_file(path: Path = DEFAULT_CREDENTIALS_PATH) -> Path:
-    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    path.touch(mode=0o600, exist_ok=True)
-    path.chmod(0o600)
+    directory_mode = 0o700 if os.name == "posix" else 0o777
+    path.parent.mkdir(mode=directory_mode, parents=True, exist_ok=True)
+    if _validate_credentials_path(path):
+        descriptor = _open_existing_credentials_file(path)
+    else:
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+        if os.name == "posix":
+            flags |= os.O_NOFOLLOW
+        try:
+            descriptor = os.open(path, flags, 0o600)
+        except FileExistsError:
+            _validate_credentials_path(path)
+            descriptor = _open_existing_credentials_file(path)
+    try:
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise ValueError("credentials path must be a regular file")
+        if os.name == "posix":
+            os.fchmod(descriptor, 0o600)
+    finally:
+        os.close(descriptor)
     return path
 
 

@@ -13,6 +13,15 @@ from earnings_export.options_models import (
 )
 
 
+@pytest.fixture(autouse=True)
+def isolate_local_credentials_path(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        options_config,
+        "DEFAULT_CREDENTIALS_PATH",
+        tmp_path / "missing-credentials.env",
+    )
+
+
 def test_load_analysis_settings_uses_safe_defaults(tmp_path):
     settings = load_analysis_settings({}, tmp_path)
 

@@ -1,9 +1,15 @@
 import json
+import os
 from datetime import date, datetime, timezone
 
 import pytest
 
-from earnings_export.cli import main, run_analyze_next_week_options, run_export_next_week
+from earnings_export.cli import (
+    initialize_credentials_file,
+    main,
+    run_analyze_next_week_options,
+    run_export_next_week,
+)
 from earnings_export.export.options_report import AnalysisRunResult, OptionsArtifactPaths
 from earnings_export.models import EarningsEvent
 
@@ -34,6 +40,7 @@ def test_main_returns_zero_for_stubbed_export_command(monkeypatch):
     assert main(["export-next-week"]) == 0
 
 
+@pytest.mark.skipif(os.name != "posix", reason="Unix permission bits are POSIX-only")
 def test_init_local_credentials_creates_owner_only_file(monkeypatch, tmp_path, capsys):
     credentials = tmp_path / "config" / "credentials.env"
     monkeypatch.setattr("earnings_export.cli.DEFAULT_CREDENTIALS_PATH", credentials)
@@ -45,6 +52,45 @@ def test_init_local_credentials_creates_owner_only_file(monkeypatch, tmp_path, c
     assert captured.out == f"{credentials}\n"
     assert captured.err == ""
     assert credentials.read_text() == ""
+
+
+def test_initialize_credentials_creates_empty_file_without_chmod_on_non_posix(
+    monkeypatch, tmp_path,
+):
+    credentials = tmp_path / "config" / "credentials.env"
+    monkeypatch.setattr("earnings_export.cli.os.name", "nt")
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("chmod is unsupported for non-POSIX credentials initialization")
+
+    monkeypatch.setattr("pathlib.Path.chmod", fail_if_called)
+
+    assert initialize_credentials_file(credentials) == credentials
+    assert credentials.read_text() == ""
+
+
+def test_initialize_credentials_rejects_symbolic_link_without_modifying_target(tmp_path):
+    target = tmp_path / "target.env"
+    target.write_text("unchanged\n")
+    credentials = tmp_path / "config" / "credentials.env"
+    credentials.parent.mkdir()
+    try:
+        credentials.symlink_to(target)
+    except OSError as error:
+        pytest.skip(f"symbolic links are unavailable: {error}")
+
+    with pytest.raises(ValueError, match="symbolic link"):
+        initialize_credentials_file(credentials)
+
+    assert target.read_text() == "unchanged\n"
+
+
+def test_initialize_credentials_rejects_non_regular_path(tmp_path):
+    credentials = tmp_path / "config" / "credentials.env"
+    credentials.mkdir(parents=True)
+
+    with pytest.raises(ValueError, match="regular file"):
+        initialize_credentials_file(credentials)
 
 
 @pytest.mark.parametrize("argument", ["unexpected", "ALPHAVANTAGE_API_KEY=secret"])

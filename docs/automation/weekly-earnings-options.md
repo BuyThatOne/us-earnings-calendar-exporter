@@ -25,7 +25,7 @@ artifacts.
 From the project root, run:
 
 ```bash
-python -m earnings_export analyze-next-week-options
+PYTHONPATH=src python3 -m earnings_export analyze-next-week-options
 ```
 
 The command is deterministic with the configured providers and writes dated
