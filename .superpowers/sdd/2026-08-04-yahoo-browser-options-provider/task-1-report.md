@@ -33,4 +33,31 @@ blank line detected by post-commit whitespace verification.
 
 ## Concerns
 
-- The provider intentionally depends only on the `YahooBrowserPageReader.read(symbol)` protocol. Browser/Playwright integration remains outside this task, and no live Yahoo or Playwright calls were made.
+- Browser/Playwright integration remains outside this task, and no live Yahoo or Playwright calls were made.
+
+## Review Fix Round 1
+
+### Status
+
+Completed both P1 review findings. The reader protocol and provider now use
+`read_current_page(symbol)`, matching the Task 2 reader interface. Currency
+normalization accepts three-letter currency codes and rendered currency markers
+at numeric boundaries while malformed numeric content still fails strict finite
+numeric parsing.
+
+### Test Commands And Results
+
+1. `pytest tests/options/test_yahoo_browser_options.py -v`
+   - RED: `3 failed, 3 passed`. The reader test raised the expected
+     `AttributeError` for missing `read`, and CAD/C$ values produced the
+     expected pre-fix `browser_parse_failed` result.
+2. `pytest tests/options/test_yahoo_browser_options.py -v`
+   - GREEN: `6 passed in 0.01s`.
+3. `pytest`
+   - Regression suite: `104 passed in 0.10s`.
+4. `git diff --check`
+   - Completed with no output and exit code 0.
+
+### Fix Commit
+
+`9d10247 fix: align yahoo browser reader and currency parsing`
