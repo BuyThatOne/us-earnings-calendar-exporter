@@ -48,9 +48,24 @@ def test_init_local_credentials_creates_owner_only_file(monkeypatch, tmp_path, c
 
 
 @pytest.mark.parametrize("argument", ["unexpected", "ALPHAVANTAGE_API_KEY=secret"])
-def test_init_local_credentials_rejects_extra_or_key_like_arguments(argument, tmp_path):
-    with pytest.raises(SystemExit, match="Usage: python -m earnings_export"):
+def test_init_local_credentials_rejects_arguments_without_creating_credentials(
+    argument, monkeypatch, tmp_path, capsys,
+):
+    credentials = tmp_path / "config" / "credentials.env"
+    monkeypatch.setattr("earnings_export.cli.DEFAULT_CREDENTIALS_PATH", credentials)
+
+    with pytest.raises(SystemExit) as error:
         main(["init-local-credentials", argument])
+
+    assert str(error.value) == (
+        "Usage: python -m earnings_export "
+        "{init-local-credentials|export-next-week|analyze-next-week-options}"
+    )
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == ""
+    assert not credentials.parent.exists()
+    assert not credentials.exists()
 
 
 def test_main_reads_process_arguments_when_argv_is_none(monkeypatch):

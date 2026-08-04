@@ -73,6 +73,12 @@ def test_local_credentials_doc_covers_secure_setup_contract():
 
     assert "~/.config/earnings-options-research/credentials.env" in documentation
     assert "python -m earnings_export init-local-credentials" in documentation
+    assert "prints only the file path" in normalized_documentation
+    assert "does not accept a key argument" in normalized_documentation
+    assert "does not accept extra arguments" in normalized_documentation
+    assert "write key material" in normalized_documentation
+    assert "owner-only mode `0600`" in documentation
+    assert "owner-only mode `0700`" in documentation
     assert "open the file in a local text editor" in normalized_documentation
     assert "alphavantage_api_key" in normalized_documentation
     assert re.search(
@@ -81,4 +87,14 @@ def test_local_credentials_doc_covers_secure_setup_contract():
         normalized_documentation,
     )
     assert "weekly local codex task uses the same loader" in normalized_documentation
+    for prohibited_location in (
+        "shell command",
+        "shell history",
+        "this repository",
+        "logs",
+        "prompts",
+        "generated artifacts",
+    ):
+        assert prohibited_location in normalized_documentation
+    assert "rejects a file readable by group or others" in normalized_documentation
     _assert_no_credential_assignment(documentation)

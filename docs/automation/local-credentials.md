@@ -13,9 +13,10 @@ The file and its parent directory are created by the one-time setup command:
 python -m earnings_export init-local-credentials
 ```
 
-The command prints only the file path. It does not accept a key argument or
-write key material. The file is created empty with owner-only mode `0600`; the
-directory is created with owner-only mode `0700` when it does not already exist.
+The command prints only the file path. It does not accept a key argument. It
+does not accept extra arguments. It does not write key material. The file is
+created empty with owner-only mode `0600`; the directory is created with
+owner-only mode `0700` when it does not already exist.
 
 Open the file in a local text editor and enter the dotenv-style
 `ALPHAVANTAGE_API_KEY` entry and its local value. Do not put the value in a
