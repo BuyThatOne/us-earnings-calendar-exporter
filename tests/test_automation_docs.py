@@ -4,6 +4,7 @@ from pathlib import Path
 
 PROMPT_PATH = Path("automation/weekly_earnings_options_prompt.md")
 RUNBOOK_PATH = Path("docs/automation/weekly-earnings-options.md")
+LOCAL_CREDENTIALS_PATH = Path("docs/automation/local-credentials.md")
 PROJECT_ROOT = "/Users/yongningzhang/Documents/earnings"
 
 
@@ -64,3 +65,20 @@ def test_runbook_documents_the_scheduled_research_only_workflow():
     assert "disable or delete the project-level cron schedule" in normalized_runbook
     assert "leave the versioned prompt and this runbook in place" in normalized_runbook
     assert "re-enable it only after restoring" in normalized_runbook
+
+
+def test_local_credentials_doc_covers_secure_setup_contract():
+    documentation = LOCAL_CREDENTIALS_PATH.read_text()
+    normalized_documentation = _normalized(documentation)
+
+    assert "~/.config/earnings-options-research/credentials.env" in documentation
+    assert "python -m earnings_export init-local-credentials" in documentation
+    assert "open the file in a local text editor" in normalized_documentation
+    assert "alphavantage_api_key" in normalized_documentation
+    assert re.search(
+        r"environment.{0,120}preference to the file"
+        r"|preference to the file.{0,120}environment",
+        normalized_documentation,
+    )
+    assert "weekly local codex task uses the same loader" in normalized_documentation
+    _assert_no_credential_assignment(documentation)

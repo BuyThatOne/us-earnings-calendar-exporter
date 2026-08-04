@@ -39,9 +39,18 @@ def test_init_local_credentials_creates_owner_only_file(monkeypatch, tmp_path, c
     monkeypatch.setattr("earnings_export.cli.DEFAULT_CREDENTIALS_PATH", credentials)
     assert main(["init-local-credentials"]) == 0
     assert credentials.exists()
-    assert credentials.stat().st_mode & 0o077 == 0
-    assert str(credentials) in capsys.readouterr().out
+    assert credentials.parent.stat().st_mode & 0o777 == 0o700
+    assert credentials.stat().st_mode & 0o777 == 0o600
+    captured = capsys.readouterr()
+    assert captured.out == f"{credentials}\n"
+    assert captured.err == ""
     assert credentials.read_text() == ""
+
+
+@pytest.mark.parametrize("argument", ["unexpected", "ALPHAVANTAGE_API_KEY=secret"])
+def test_init_local_credentials_rejects_extra_or_key_like_arguments(argument, tmp_path):
+    with pytest.raises(SystemExit, match="Usage: python -m earnings_export"):
+        main(["init-local-credentials", argument])
 
 
 def test_main_reads_process_arguments_when_argv_is_none(monkeypatch):
