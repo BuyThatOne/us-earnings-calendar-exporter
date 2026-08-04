@@ -4,7 +4,8 @@
 
 Completed. The browser-page parser normalizes rendered Yahoo option rows into
 `ProviderResult` data and exposes a reader-backed provider without browser or
-network calls.
+network calls. A whitespace-only follow-up commit removes an extra terminal
+blank line detected by post-commit whitespace verification.
 
 ## Changed Files
 
@@ -19,13 +20,16 @@ network calls.
 2. `pytest tests/options/test_yahoo_browser_options.py -v`
    - GREEN: `4 passed in 0.02s`.
 3. `pytest`
-   - Regression suite: `102 passed in 0.19s`.
+   - Regression suite: `102 passed in 0.19s`; repeated after the whitespace-only correction with `102 passed in 0.12s`.
 4. `git diff --check`
    - Completed with no output and exit code 0.
+5. `git diff --check HEAD`
+   - Completed with no output and exit code 0 after the whitespace-only correction.
 
 ## Commit
 
-`feat: parse yahoo browser option pages`
+- `4f412bd feat: parse yahoo browser option pages`
+- Follow-up: `chore: remove trailing blank line`
 
 ## Concerns
 

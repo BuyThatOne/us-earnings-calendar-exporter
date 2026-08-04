@@ -119,4 +119,3 @@ def test_browser_provider_reads_page_data_with_its_clock():
 
     assert result.snapshot is not None
     assert result.snapshot.collected_at == FIXED_TIME
-
