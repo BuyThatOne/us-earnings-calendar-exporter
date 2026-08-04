@@ -19,7 +19,7 @@ def _float_or_none(value: object) -> float | None:
         return None
     try:
         parsed = float(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
     return parsed if isfinite(parsed) else None
 
@@ -32,7 +32,7 @@ def _int_or_none(value: object) -> int | None:
 def _parse_expiration(value: object) -> date | None:
     try:
         timestamp = float(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
     if not isfinite(timestamp) or timestamp <= 0:
         return None

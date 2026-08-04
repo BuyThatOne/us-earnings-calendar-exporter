@@ -64,6 +64,22 @@ def test_yahoo_nonfinite_quote_is_skipped_and_marks_partial_data():
     assert result.capability.code == "partial_data"
 
 
+def test_yahoo_overflowing_numeric_quote_is_skipped_and_marks_partial_data():
+    payload = json.loads(Path("tests/fixtures/yahoo_options/current_chain.json").read_text())
+    calls = payload["optionChain"]["result"][0]["options"][0]["calls"]
+    overflowing_contract = deepcopy(calls[0])
+    overflowing_contract["contractSymbol"] = "AAPL260821C00210000"
+    overflowing_contract["bid"] = 10**1000
+    calls.append(overflowing_contract)
+
+    result = parse_yahoo_options(payload, symbol="AAPL", collected_at=FIXED_TIME)
+
+    assert [contract.option_symbol for contract in result.snapshot.contracts] == [
+        "AAPL260821C00200000"
+    ]
+    assert result.capability.code == "partial_data"
+
+
 def test_yahoo_adapter_rejects_historical_requests():
     provider = YahooOptionsProvider(session=object())
 

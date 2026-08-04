@@ -140,6 +140,23 @@ def test_candidates_omit_nonpositive_credit_and_debit_entries():
     assert all(candidate.entry_limit > 0 for candidate in candidates)
 
 
+def test_candidates_omit_entries_that_round_to_zero():
+    chain = _chain()
+    contracts = tuple(
+        replace(contract, bid=4.3199616, ask=4.6799584)
+        if contract.option_type == "put" and contract.strike == 90.0
+        else contract
+        for contract in chain.contracts
+    )
+
+    candidates = build_ranked_candidates(
+        "AAPL", EARNINGS_DATE, replace(chain, contracts=contracts), _history(), 0.10,
+    )
+
+    assert "iron_condor" not in {candidate.strategy_type for candidate in candidates}
+    assert all(candidate.entry_limit > 0 for candidate in candidates)
+
+
 def test_candidates_require_a_positive_spot_and_liquid_near_money_pair():
     assert build_ranked_candidates(
         "AAPL", EARNINGS_DATE, replace(_chain(), underlying_price=None), _history(), 0.10,

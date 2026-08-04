@@ -103,10 +103,11 @@ def _candidate(
     history: EarningsMoveHistory,
     spread_limit: float,
 ) -> StrategyCandidate | None:
+    serialized_entry_limit = round(entry_limit, 4)
     if (
         not legs
         or not isfinite(entry_limit)
-        or entry_limit <= 0
+        or serialized_entry_limit <= 0
         or not all(contract_is_liquid(leg, spread_limit) for leg in legs)
     ):
         return None
@@ -116,7 +117,7 @@ def _candidate(
         strategy_type=strategy_type,
         defined_risk=defined_risk,
         legs=legs,
-        entry_limit=round(entry_limit, 4),
+        entry_limit=serialized_entry_limit,
         maximum_loss=round(maximum_loss, 2) if maximum_loss is not None else None,
         implied_move_pct=implied_move_pct,
         historical_median_move_pct=history.absolute_move_median,
