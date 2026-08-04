@@ -69,6 +69,33 @@ def test_initialize_credentials_creates_empty_file_without_chmod_on_non_posix(
     assert credentials.read_text() == ""
 
 
+def test_initialize_credentials_fails_closed_for_existing_path_on_non_posix(
+    monkeypatch, tmp_path,
+):
+    credentials = tmp_path / "config" / "credentials.env"
+    credentials.parent.mkdir()
+    credentials.write_text("unchanged\n")
+    monkeypatch.setattr("earnings_export.cli.os.name", "nt")
+
+    with pytest.raises(ValueError, match="atomic no-follow support"):
+        initialize_credentials_file(credentials)
+
+    assert credentials.read_text() == "unchanged\n"
+
+
+@pytest.mark.skipif(os.name != "posix", reason="O_NOFOLLOW is a POSIX-only requirement")
+def test_initialize_credentials_fails_closed_when_posix_lacks_o_nofollow(
+    monkeypatch, tmp_path,
+):
+    credentials = tmp_path / "config" / "credentials.env"
+    monkeypatch.delattr("earnings_export.cli.os.O_NOFOLLOW")
+
+    with pytest.raises(ValueError, match="O_NOFOLLOW is unavailable on POSIX"):
+        initialize_credentials_file(credentials)
+
+    assert not credentials.parent.exists()
+
+
 def test_initialize_credentials_rejects_symbolic_link_without_modifying_target(tmp_path):
     target = tmp_path / "target.env"
     target.write_text("unchanged\n")

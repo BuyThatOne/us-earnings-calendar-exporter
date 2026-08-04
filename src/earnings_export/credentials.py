@@ -10,25 +10,27 @@ from typing import Mapping
 DEFAULT_CREDENTIALS_PATH = Path.home() / ".config" / "earnings-options-research" / "credentials.env"
 
 
-def _validate_credentials_path(credentials_path: Path) -> os.stat_result | None:
+def _required_posix_no_follow_flag() -> int:
+    if os.name != "posix":
+        return 0
     try:
-        path_stat = credentials_path.lstat()
-    except FileNotFoundError:
-        return None
-    if stat.S_ISLNK(path_stat.st_mode):
-        raise ValueError("credentials file must not be a symbolic link")
-    if not stat.S_ISREG(path_stat.st_mode):
-        raise ValueError("credentials path must be a regular file")
-    return path_stat
+        return os.O_NOFOLLOW
+    except AttributeError as error:
+        raise ValueError(
+            "credentials security error: O_NOFOLLOW is unavailable on POSIX"
+        ) from error
 
 
 def _open_credentials_file(credentials_path: Path) -> int | None:
-    if _validate_credentials_path(credentials_path) is None:
+    if os.name != "posix":
+        if os.path.lexists(credentials_path):
+            raise ValueError(
+                "credentials security error: cannot access an existing credentials path "
+                "without atomic no-follow support"
+            )
         return None
 
-    flags = os.O_RDONLY
-    if os.name == "posix":
-        flags |= os.O_NOFOLLOW
+    flags = os.O_RDONLY | _required_posix_no_follow_flag()
     try:
         descriptor = os.open(credentials_path, flags)
     except FileNotFoundError:

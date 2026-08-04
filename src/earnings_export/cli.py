@@ -28,24 +28,23 @@ from earnings_export.sources.yahoo_options import YahooOptionsProvider
 MIN_OPTIONS_MARKET_CAP = 50_000_000_000
 
 
-def _validate_credentials_path(path: Path) -> bool:
+def _required_posix_no_follow_flag() -> int:
+    if os.name != "posix":
+        return 0
     try:
-        path_stat = path.lstat()
-    except FileNotFoundError:
-        return False
-    if stat.S_ISLNK(path_stat.st_mode):
-        raise ValueError("credentials file must not be a symbolic link")
-    if not stat.S_ISREG(path_stat.st_mode):
-        raise ValueError("credentials path must be a regular file")
-    return True
+        return os.O_NOFOLLOW
+    except AttributeError as error:
+        raise ValueError(
+            "credentials security error: O_NOFOLLOW is unavailable on POSIX"
+        ) from error
 
 
 def _open_existing_credentials_file(path: Path) -> int:
-    flags = os.O_WRONLY
-    if os.name == "posix":
-        flags |= os.O_NOFOLLOW
+    flags = os.O_WRONLY | _required_posix_no_follow_flag()
     try:
         descriptor = os.open(path, flags)
+    except IsADirectoryError as error:
+        raise ValueError("credentials path must be a regular file") from error
     except OSError as error:
         if error.errno == errno.ELOOP:
             raise ValueError("credentials file must not be a symbolic link") from error
@@ -61,19 +60,19 @@ def _open_existing_credentials_file(path: Path) -> int:
 
 
 def initialize_credentials_file(path: Path = DEFAULT_CREDENTIALS_PATH) -> Path:
+    no_follow_flag = _required_posix_no_follow_flag()
     directory_mode = 0o700 if os.name == "posix" else 0o777
     path.parent.mkdir(mode=directory_mode, parents=True, exist_ok=True)
-    if _validate_credentials_path(path):
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | no_follow_flag
+    try:
+        descriptor = os.open(path, flags, 0o600)
+    except FileExistsError:
+        if os.name != "posix":
+            raise ValueError(
+                "credentials security error: cannot initialize an existing credentials "
+                "path without atomic no-follow support"
+            ) from None
         descriptor = _open_existing_credentials_file(path)
-    else:
-        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
-        if os.name == "posix":
-            flags |= os.O_NOFOLLOW
-        try:
-            descriptor = os.open(path, flags, 0o600)
-        except FileExistsError:
-            _validate_credentials_path(path)
-            descriptor = _open_existing_credentials_file(path)
     try:
         if not stat.S_ISREG(os.fstat(descriptor).st_mode):
             raise ValueError("credentials path must be a regular file")

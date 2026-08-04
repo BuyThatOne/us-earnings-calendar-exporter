@@ -98,4 +98,8 @@ def test_local_credentials_doc_covers_secure_setup_contract():
         assert prohibited_location in normalized_documentation
     assert "rejects a file readable by group or others" in normalized_documentation
     assert "non-posix" in normalized_documentation
+    assert "refuses to read any existing credentials path" in normalized_documentation
+    assert "refuses to modify one" in normalized_documentation
+    assert "genuinely absent empty file with an exclusive create" in normalized_documentation
+    assert "cannot be loaded by this application on non-posix systems" in normalized_documentation
     _assert_no_credential_assignment(documentation)

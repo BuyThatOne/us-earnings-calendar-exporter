@@ -28,13 +28,25 @@ def test_rejects_group_or_other_readable_file(tmp_path):
         load_alpha_vantage_api_key({}, credentials)
 
 
-def test_loads_file_without_unix_mode_check_on_non_posix(tmp_path, monkeypatch):
+def test_loader_fails_closed_for_existing_path_on_non_posix(tmp_path, monkeypatch):
     credentials = tmp_path / "credentials.env"
     credentials.write_text("ALPHAVANTAGE_API_KEY=file-key\n")
     credentials.chmod(0o644)
     monkeypatch.setattr("earnings_export.credentials.os.name", "nt")
 
-    assert load_alpha_vantage_api_key({}, credentials) == "file-key"
+    with pytest.raises(ValueError, match="atomic no-follow support"):
+        load_alpha_vantage_api_key({}, credentials)
+
+
+@pytest.mark.skipif(os.name != "posix", reason="O_NOFOLLOW is a POSIX-only requirement")
+def test_loader_fails_closed_when_posix_lacks_o_nofollow(monkeypatch, tmp_path):
+    credentials = tmp_path / "credentials.env"
+    credentials.write_text("ALPHAVANTAGE_API_KEY=file-key\n")
+    credentials.chmod(0o600)
+    monkeypatch.delattr("earnings_export.credentials.os.O_NOFOLLOW")
+
+    with pytest.raises(ValueError, match="O_NOFOLLOW is unavailable on POSIX"):
+        load_alpha_vantage_api_key({}, credentials)
 
 
 def test_rejects_symbolic_link_credentials_file(tmp_path):
