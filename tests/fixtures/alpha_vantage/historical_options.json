@@ -1,0 +1,22 @@
+{
+  "endpoint": "HISTORICAL_OPTIONS",
+  "data": [
+    {
+      "contractID": "AAPL260821P00200000",
+      "symbol": "AAPL",
+      "expiration": "2026-08-21",
+      "strike": "200.00",
+      "type": "put",
+      "bid": "3.90",
+      "ask": "4.20",
+      "implied_volatility": "0.28",
+      "delta": "-0.48",
+      "gamma": "0.03",
+      "theta": "-0.07",
+      "vega": "0.10",
+      "rho": "-0.02",
+      "open_interest": "987",
+      "date": "2026-07-30"
+    }
+  ]
+}
