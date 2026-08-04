@@ -48,6 +48,9 @@ class YahooBrowserPageReader(Protocol):
     def read_current_page(self, symbol: str) -> YahooBrowserPageData:
         raise NotImplementedError
 
+    def close(self) -> None:
+        raise NotImplementedError
+
 
 class _BrowserPageUnavailableError(RuntimeError):
     pass
@@ -307,3 +310,6 @@ class YahooBrowserOptionsProvider:
 
     def fetch_historical_chain(self, symbol: str, as_of: date) -> ProviderResult:
         return ProviderResult.unavailable(self.name, "unsupported")
+
+    def close(self) -> None:
+        self._reader.close()
