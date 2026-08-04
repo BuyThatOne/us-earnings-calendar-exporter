@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import errno
 import os
+import stat
 import sys
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -8,6 +10,7 @@ from pathlib import Path
 import requests
 
 from earnings_export.date_window import get_next_week_window
+from earnings_export.credentials import DEFAULT_CREDENTIALS_PATH
 from earnings_export.export.csv_writer import write_export_csv
 from earnings_export.export.options_report import OptionsArtifactPaths, write_options_artifacts
 from earnings_export.options_config import load_analysis_settings
@@ -23,6 +26,61 @@ from earnings_export.sources.yahoo_options import YahooOptionsProvider
 
 
 MIN_OPTIONS_MARKET_CAP = 50_000_000_000
+
+
+def _required_posix_no_follow_flag() -> int:
+    if os.name != "posix":
+        return 0
+    try:
+        return os.O_NOFOLLOW
+    except AttributeError as error:
+        raise ValueError(
+            "credentials security error: O_NOFOLLOW is unavailable on POSIX"
+        ) from error
+
+
+def _open_existing_credentials_file(path: Path) -> int:
+    flags = os.O_WRONLY | _required_posix_no_follow_flag()
+    try:
+        descriptor = os.open(path, flags)
+    except IsADirectoryError as error:
+        raise ValueError("credentials path must be a regular file") from error
+    except OSError as error:
+        if error.errno == errno.ELOOP:
+            raise ValueError("credentials file must not be a symbolic link") from error
+        raise
+
+    try:
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise ValueError("credentials path must be a regular file")
+    except BaseException:
+        os.close(descriptor)
+        raise
+    return descriptor
+
+
+def initialize_credentials_file(path: Path = DEFAULT_CREDENTIALS_PATH) -> Path:
+    no_follow_flag = _required_posix_no_follow_flag()
+    directory_mode = 0o700 if os.name == "posix" else 0o777
+    path.parent.mkdir(mode=directory_mode, parents=True, exist_ok=True)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | no_follow_flag
+    try:
+        descriptor = os.open(path, flags, 0o600)
+    except FileExistsError:
+        if os.name != "posix":
+            raise ValueError(
+                "credentials security error: cannot initialize an existing credentials "
+                "path without atomic no-follow support"
+            ) from None
+        descriptor = _open_existing_credentials_file(path)
+    try:
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise ValueError("credentials path must be a regular file")
+        if os.name == "posix":
+            os.fchmod(descriptor, 0o600)
+    finally:
+        os.close(descriptor)
+    return path
 
 
 def run_export_next_week(
@@ -76,6 +134,9 @@ def run_analyze_next_week_options(
 
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
+    if argv == ["init-local-credentials"]:
+        print(initialize_credentials_file(DEFAULT_CREDENTIALS_PATH))
+        return 0
     if argv == ["export-next-week"]:
         print(run_export_next_week())
         return 0
@@ -86,5 +147,5 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     raise SystemExit(
         "Usage: python -m earnings_export "
-        "{export-next-week|analyze-next-week-options}"
+        "{init-local-credentials|export-next-week|analyze-next-week-options}"
     )

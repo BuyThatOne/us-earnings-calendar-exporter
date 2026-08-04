@@ -1,6 +1,6 @@
 # Weekly Earnings Options Research
 
-Run `python -m earnings_export analyze-next-week-options` from the project root.
+Run `PYTHONPATH=src python3 -m earnings_export analyze-next-week-options` from the project root.
 
 Read the generated Markdown and JSON artifacts for this run. Summarize only:
 

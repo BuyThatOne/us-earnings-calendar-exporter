@@ -1,9 +1,15 @@
 import json
+import os
 from datetime import date, datetime, timezone
 
 import pytest
 
-from earnings_export.cli import main, run_analyze_next_week_options, run_export_next_week
+from earnings_export.cli import (
+    initialize_credentials_file,
+    main,
+    run_analyze_next_week_options,
+    run_export_next_week,
+)
 from earnings_export.export.options_report import AnalysisRunResult, OptionsArtifactPaths
 from earnings_export.models import EarningsEvent
 
@@ -34,12 +40,113 @@ def test_main_returns_zero_for_stubbed_export_command(monkeypatch):
     assert main(["export-next-week"]) == 0
 
 
+@pytest.mark.skipif(os.name != "posix", reason="Unix permission bits are POSIX-only")
+def test_init_local_credentials_creates_owner_only_file(monkeypatch, tmp_path, capsys):
+    credentials = tmp_path / "config" / "credentials.env"
+    monkeypatch.setattr("earnings_export.cli.DEFAULT_CREDENTIALS_PATH", credentials)
+    assert main(["init-local-credentials"]) == 0
+    assert credentials.exists()
+    assert credentials.parent.stat().st_mode & 0o777 == 0o700
+    assert credentials.stat().st_mode & 0o777 == 0o600
+    captured = capsys.readouterr()
+    assert captured.out == f"{credentials}\n"
+    assert captured.err == ""
+    assert credentials.read_text() == ""
+
+
+def test_initialize_credentials_creates_empty_file_without_chmod_on_non_posix(
+    monkeypatch, tmp_path,
+):
+    credentials = tmp_path / "config" / "credentials.env"
+    monkeypatch.setattr("earnings_export.cli.os.name", "nt")
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("chmod is unsupported for non-POSIX credentials initialization")
+
+    monkeypatch.setattr("pathlib.Path.chmod", fail_if_called)
+
+    assert initialize_credentials_file(credentials) == credentials
+    assert credentials.read_text() == ""
+
+
+def test_initialize_credentials_fails_closed_for_existing_path_on_non_posix(
+    monkeypatch, tmp_path,
+):
+    credentials = tmp_path / "config" / "credentials.env"
+    credentials.parent.mkdir()
+    credentials.write_text("unchanged\n")
+    monkeypatch.setattr("earnings_export.cli.os.name", "nt")
+
+    with pytest.raises(ValueError, match="atomic no-follow support"):
+        initialize_credentials_file(credentials)
+
+    assert credentials.read_text() == "unchanged\n"
+
+
+@pytest.mark.skipif(os.name != "posix", reason="O_NOFOLLOW is a POSIX-only requirement")
+def test_initialize_credentials_fails_closed_when_posix_lacks_o_nofollow(
+    monkeypatch, tmp_path,
+):
+    credentials = tmp_path / "config" / "credentials.env"
+    monkeypatch.delattr("earnings_export.cli.os.O_NOFOLLOW")
+
+    with pytest.raises(ValueError, match="O_NOFOLLOW is unavailable on POSIX"):
+        initialize_credentials_file(credentials)
+
+    assert not credentials.parent.exists()
+
+
+def test_initialize_credentials_rejects_symbolic_link_without_modifying_target(tmp_path):
+    target = tmp_path / "target.env"
+    target.write_text("unchanged\n")
+    credentials = tmp_path / "config" / "credentials.env"
+    credentials.parent.mkdir()
+    try:
+        credentials.symlink_to(target)
+    except OSError as error:
+        pytest.skip(f"symbolic links are unavailable: {error}")
+
+    with pytest.raises(ValueError, match="symbolic link"):
+        initialize_credentials_file(credentials)
+
+    assert target.read_text() == "unchanged\n"
+
+
+def test_initialize_credentials_rejects_non_regular_path(tmp_path):
+    credentials = tmp_path / "config" / "credentials.env"
+    credentials.mkdir(parents=True)
+
+    with pytest.raises(ValueError, match="regular file"):
+        initialize_credentials_file(credentials)
+
+
+@pytest.mark.parametrize("argument", ["unexpected", "ALPHAVANTAGE_API_KEY=secret"])
+def test_init_local_credentials_rejects_arguments_without_creating_credentials(
+    argument, monkeypatch, tmp_path, capsys,
+):
+    credentials = tmp_path / "config" / "credentials.env"
+    monkeypatch.setattr("earnings_export.cli.DEFAULT_CREDENTIALS_PATH", credentials)
+
+    with pytest.raises(SystemExit) as error:
+        main(["init-local-credentials", argument])
+
+    assert str(error.value) == (
+        "Usage: python -m earnings_export "
+        "{init-local-credentials|export-next-week|analyze-next-week-options}"
+    )
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == ""
+    assert not credentials.parent.exists()
+    assert not credentials.exists()
+
+
 def test_main_reads_process_arguments_when_argv_is_none(monkeypatch):
     monkeypatch.setattr("sys.argv", ["earnings-export", "not-a-command"])
 
     with pytest.raises(
         SystemExit,
-        match=r"Usage: python -m earnings_export \{export-next-week\|analyze-next-week-options\}",
+        match=r"Usage: python -m earnings_export \{init-local-credentials\|export-next-week\|analyze-next-week-options\}",
     ):
         main()
 

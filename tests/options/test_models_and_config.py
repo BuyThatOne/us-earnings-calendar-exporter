@@ -2,6 +2,7 @@ from datetime import date, datetime
 
 import pytest
 
+import earnings_export.options_config as options_config
 from earnings_export.options_config import load_analysis_settings
 from earnings_export.options_models import (
     EarningsMoveHistory,
@@ -10,6 +11,15 @@ from earnings_export.options_models import (
     ProviderCapability,
     StrategyCandidate,
 )
+
+
+@pytest.fixture(autouse=True)
+def isolate_local_credentials_path(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        options_config,
+        "DEFAULT_CREDENTIALS_PATH",
+        tmp_path / "missing-credentials.env",
+    )
 
 
 def test_load_analysis_settings_uses_safe_defaults(tmp_path):
@@ -34,6 +44,17 @@ def test_load_analysis_settings_reads_environment_values(tmp_path):
     assert settings.output_dir == tmp_path / "custom-output"
     assert settings.spread_limit == 0.25
     assert settings.alpha_vantage_api_key == "secret"
+
+
+def test_load_analysis_settings_reads_owner_only_credentials_file(tmp_path, monkeypatch):
+    credentials = tmp_path / "credentials.env"
+    credentials.write_text("ALPHAVANTAGE_API_KEY=file-key\n")
+    credentials.chmod(0o600)
+    monkeypatch.setattr(options_config, "DEFAULT_CREDENTIALS_PATH", credentials)
+
+    settings = load_analysis_settings({}, tmp_path)
+
+    assert settings.alpha_vantage_api_key == "file-key"
 
 
 @pytest.mark.parametrize("value", ("0", "-0.1", "1.01"))

@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping
 
+from earnings_export.credentials import DEFAULT_CREDENTIALS_PATH, load_alpha_vantage_api_key
+
 
 @dataclass(frozen=True)
 class AnalysisSettings:
@@ -22,5 +24,5 @@ def load_analysis_settings(environ: Mapping[str, str], cwd: Path) -> AnalysisSet
         output_dir=cwd / environ.get("EARNINGS_OPTIONS_OUTPUT_DIR", "exports/earnings-options"),
         spread_limit=spread_limit,
         provider_order=("alpha_vantage", "yahoo"),
-        alpha_vantage_api_key=environ.get("ALPHAVANTAGE_API_KEY") or None,
+        alpha_vantage_api_key=load_alpha_vantage_api_key(environ, DEFAULT_CREDENTIALS_PATH),
     )
