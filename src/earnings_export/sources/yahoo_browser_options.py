@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from math import isfinite
 import re
+import time
 from typing import Callable, Protocol
 
 from earnings_export.options_models import OptionChainSnapshot, OptionContract, ProviderCapability
@@ -24,6 +25,12 @@ _CURRENCY_SUFFIX = re.compile(
 )
 
 
+def _sync_playwright():
+    from playwright.sync_api import sync_playwright
+
+    return sync_playwright()
+
+
 @dataclass(frozen=True)
 class YahooBrowserOptionRow:
     option_type: str
@@ -40,6 +47,132 @@ class YahooBrowserPageData:
 class YahooBrowserPageReader(Protocol):
     def read_current_page(self, symbol: str) -> YahooBrowserPageData:
         raise NotImplementedError
+
+
+class _BrowserPageUnavailableError(RuntimeError):
+    pass
+
+
+class _BrowserUnavailableError(RuntimeError):
+    pass
+
+
+class PlaywrightYahooPageReader:
+    _QUOTE_SELECTORS = (
+        'fin-streamer[data-field="regularMarketPrice"]',
+        '[data-testid="qsp-price"]',
+    )
+    _ROW_SELECTORS = (
+        ("call", "table.calls tbody tr"),
+        ("put", "table.puts tbody tr"),
+    )
+
+    def __init__(self, timeout_seconds: float, delay_seconds: float) -> None:
+        if not isfinite(timeout_seconds) or timeout_seconds <= 0:
+            raise ValueError("timeout_seconds must be positive and finite")
+        if not isfinite(delay_seconds) or delay_seconds < 0:
+            raise ValueError("delay_seconds must be non-negative and finite")
+        self._timeout_seconds = timeout_seconds
+        self._delay_seconds = delay_seconds
+        self._playwright = None
+        self._browser = None
+        self._context = None
+        self._last_read_at: float | None = None
+
+    def _start(self) -> None:
+        if self._context is not None:
+            return
+        try:
+            self._playwright = _sync_playwright().start()
+            self._browser = self._playwright.chromium.launch()
+            self._context = self._browser.new_context()
+        except Exception as error:
+            self.close()
+            raise _BrowserUnavailableError("Playwright Chromium is unavailable") from error
+
+    @staticmethod
+    def _visible_text(page, selector: str) -> str | None:
+        try:
+            texts = page.locator(selector).all_inner_texts()
+        except Exception:
+            return None
+        return next((text.strip() for text in texts if text.strip()), None)
+
+    @classmethod
+    def _extract_rows(cls, page, option_type: str, selector: str) -> tuple[YahooBrowserOptionRow, ...]:
+        try:
+            rows = page.locator(selector)
+            extracted = []
+            for index in range(rows.count()):
+                cells = tuple(text.strip() for text in rows.nth(index).locator("td").all_inner_texts())
+                if cells:
+                    extracted.append(YahooBrowserOptionRow(option_type=option_type, cells=cells))
+            return tuple(extracted)
+        except Exception:
+            return ()
+
+    def read_current_page(self, symbol: str) -> YahooBrowserPageData:
+        self._start()
+        if self._last_read_at is not None and self._delay_seconds:
+            remaining_delay = self._delay_seconds - (time.monotonic() - self._last_read_at)
+            if remaining_delay > 0:
+                time.sleep(remaining_delay)
+
+        page = None
+        try:
+            page = self._context.new_page()
+            response = page.goto(
+                f"https://ca.finance.yahoo.com/quote/{symbol}/options/",
+                wait_until="domcontentloaded",
+                timeout=self._timeout_seconds * 1_000,
+            )
+            if response is None or not response.ok:
+                raise _BrowserPageUnavailableError("Yahoo options page is unavailable")
+
+            body_text = self._visible_text(page, "body")
+            if body_text is None:
+                raise _BrowserPageUnavailableError("Yahoo options page has no visible content")
+            underlying_price = next(
+                (text for selector in self._QUOTE_SELECTORS if (text := self._visible_text(page, selector))),
+                None,
+            )
+            rows = tuple(
+                row
+                for option_type, selector in self._ROW_SELECTORS
+                for row in self._extract_rows(page, option_type, selector)
+            )
+            return YahooBrowserPageData(
+                body_text=body_text,
+                underlying_price=underlying_price,
+                rows=rows,
+            )
+        except _BrowserPageUnavailableError:
+            raise
+        except Exception as error:
+            raise _BrowserPageUnavailableError("Yahoo options page could not be read") from error
+        finally:
+            self._last_read_at = time.monotonic()
+            if page is not None:
+                try:
+                    page.close()
+                except Exception:
+                    pass
+
+    def close(self) -> None:
+        for attribute, method_name in (
+            ("_context", "close"),
+            ("_browser", "close"),
+            ("_playwright", "stop"),
+        ):
+            resource = getattr(self, attribute)
+            if resource is None:
+                continue
+            try:
+                getattr(resource, method_name)()
+            except Exception:
+                pass
+            finally:
+                setattr(self, attribute, None)
 
 
 def _is_missing(value: object) -> bool:
@@ -164,7 +297,13 @@ class YahooBrowserOptionsProvider:
         self._clock = clock
 
     def fetch_current_chain(self, symbol: str) -> ProviderResult:
-        return parse_yahoo_browser_page(self._reader.read_current_page(symbol), symbol, self._clock())
+        try:
+            page_data = self._reader.read_current_page(symbol)
+        except _BrowserPageUnavailableError:
+            return ProviderResult.unavailable(self.name, "browser_page_unavailable")
+        except _BrowserUnavailableError:
+            return ProviderResult.unavailable(self.name, "browser_unavailable")
+        return parse_yahoo_browser_page(page_data, symbol, self._clock())
 
     def fetch_historical_chain(self, symbol: str, as_of: date) -> ProviderResult:
         return ProviderResult.unavailable(self.name, "unsupported")

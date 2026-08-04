@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "Export next week's US earnings calendar."
 requires-python = ">=3.10"
 dependencies = [
+    "playwright>=1.62",
     "requests>=2.31",
 ]
 

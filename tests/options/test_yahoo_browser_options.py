@@ -1,6 +1,8 @@
 from datetime import date, datetime, timezone
 
+import earnings_export.sources.yahoo_browser_options as yahoo_browser_options
 from earnings_export.sources.yahoo_browser_options import (
+    PlaywrightYahooPageReader,
     YahooBrowserOptionRow,
     YahooBrowserOptionsProvider,
     YahooBrowserPageData,
@@ -9,6 +11,189 @@ from earnings_export.sources.yahoo_browser_options import (
 
 
 FIXED_TIME = datetime(2026, 7, 31, 14, 0, tzinfo=timezone.utc)
+
+
+class _FakeResponse:
+    ok = True
+
+
+class _FakeCells:
+    def __init__(self, texts: tuple[str, ...]) -> None:
+        self._texts = texts
+
+    def all_inner_texts(self) -> list[str]:
+        return list(self._texts)
+
+
+class _FakeRow:
+    def __init__(self, cells: tuple[str, ...]) -> None:
+        self._cells = cells
+
+    def locator(self, selector: str) -> _FakeCells:
+        assert selector == "td"
+        return _FakeCells(self._cells)
+
+
+class _FakeRows:
+    def __init__(self, rows: tuple[_FakeRow, ...]) -> None:
+        self._rows = rows
+
+    def count(self) -> int:
+        return len(self._rows)
+
+    def nth(self, index: int) -> _FakeRow:
+        return self._rows[index]
+
+
+class _FakeText:
+    def __init__(self, texts: tuple[str, ...]) -> None:
+        self._texts = texts
+
+    def all_inner_texts(self) -> list[str]:
+        return list(self._texts)
+
+
+class _FakePage:
+    def __init__(self, events: list[str], navigation_error: Exception | None = None) -> None:
+        self._events = events
+        self._navigation_error = navigation_error
+        self.url: str | None = None
+
+    def goto(self, url: str, *, wait_until: str, timeout: float) -> _FakeResponse:
+        self.url = url
+        self._events.append("page.goto")
+        assert wait_until == "domcontentloaded"
+        assert timeout == 20_000
+        if self._navigation_error is not None:
+            raise self._navigation_error
+        return _FakeResponse()
+
+    def locator(self, selector: str):
+        if selector == "body":
+            return _FakeText(("AAPL Options",))
+        if "regularMarketPrice" in selector or "qsp-price" in selector:
+            return _FakeText(("$210.50",))
+        if ".calls" in selector:
+            return _FakeRows((_FakeRow(_page_data().rows[0].cells),))
+        if ".puts" in selector:
+            return _FakeRows((_FakeRow(_page_data().rows[1].cells),))
+        return _FakeRows(())
+
+    def close(self) -> None:
+        self._events.append("page.close")
+
+
+class _FakeContext:
+    def __init__(self, page: _FakePage, events: list[str]) -> None:
+        self._page = page
+        self._events = events
+
+    def new_page(self) -> _FakePage:
+        self._events.append("context.new_page")
+        return self._page
+
+    def close(self) -> None:
+        self._events.append("context.close")
+
+
+class _FakeBrowser:
+    def __init__(self, context: _FakeContext, events: list[str]) -> None:
+        self._context = context
+        self._events = events
+
+    def new_context(self) -> _FakeContext:
+        self._events.append("browser.new_context")
+        return self._context
+
+    def close(self) -> None:
+        self._events.append("browser.close")
+
+
+class _FakeChromium:
+    def __init__(self, browser: _FakeBrowser, events: list[str]) -> None:
+        self._browser = browser
+        self._events = events
+
+    def launch(self) -> _FakeBrowser:
+        self._events.append("chromium.launch")
+        return self._browser
+
+
+class _FakePlaywright:
+    def __init__(self, chromium: _FakeChromium, events: list[str]) -> None:
+        self.chromium = chromium
+        self._events = events
+
+    def stop(self) -> None:
+        self._events.append("playwright.stop")
+
+
+class _FakePlaywrightManager:
+    def __init__(self, playwright: _FakePlaywright | None, start_error: Exception | None = None) -> None:
+        self._playwright = playwright
+        self._start_error = start_error
+
+    def start(self) -> _FakePlaywright:
+        if self._start_error is not None:
+            raise self._start_error
+        assert self._playwright is not None
+        return self._playwright
+
+
+def _playwright_runtime(
+    *, navigation_error: Exception | None = None,
+) -> tuple[_FakePlaywrightManager, _FakePage, list[str]]:
+    events: list[str] = []
+    page = _FakePage(events, navigation_error)
+    context = _FakeContext(page, events)
+    browser = _FakeBrowser(context, events)
+    chromium = _FakeChromium(browser, events)
+    return _FakePlaywrightManager(_FakePlaywright(chromium, events)), page, events
+
+
+def test_playwright_reader_maps_navigation_timeout_to_page_unavailable(monkeypatch):
+    runtime, _, _ = _playwright_runtime(navigation_error=TimeoutError("timed out"))
+    monkeypatch.setattr(yahoo_browser_options, "_sync_playwright", lambda: runtime)
+    reader = PlaywrightYahooPageReader(timeout_seconds=20.0, delay_seconds=0.0)
+
+    result = YahooBrowserOptionsProvider(reader, clock=lambda: FIXED_TIME).fetch_current_chain("AAPL")
+
+    assert result.snapshot is None
+    assert result.capability.code == "browser_page_unavailable"
+
+
+def test_playwright_reader_maps_startup_failure_to_browser_unavailable(monkeypatch):
+    runtime = _FakePlaywrightManager(None, start_error=RuntimeError("Chromium is unavailable"))
+    monkeypatch.setattr(yahoo_browser_options, "_sync_playwright", lambda: runtime)
+    reader = PlaywrightYahooPageReader(timeout_seconds=20.0, delay_seconds=0.0)
+
+    result = YahooBrowserOptionsProvider(reader, clock=lambda: FIXED_TIME).fetch_current_chain("AAPL")
+
+    assert result.snapshot is None
+    assert result.capability.code == "browser_unavailable"
+
+
+def test_playwright_reader_extracts_rendered_content_and_closes_resources(monkeypatch):
+    runtime, page, events = _playwright_runtime()
+    monkeypatch.setattr(yahoo_browser_options, "_sync_playwright", lambda: runtime)
+    reader = PlaywrightYahooPageReader(timeout_seconds=20.0, delay_seconds=0.0)
+
+    page_data = reader.read_current_page("AAPL")
+    reader.close()
+
+    assert page.url == "https://ca.finance.yahoo.com/quote/AAPL/options/"
+    assert page_data.underlying_price == "$210.50"
+    assert page_data.rows == _page_data().rows
+    assert events == [
+        "chromium.launch",
+        "browser.new_context",
+        "context.new_page",
+        "page.goto",
+        "page.close",
+        "context.close",
+        "browser.close",
+        "playwright.stop",
+    ]
 
 
 def _page_data() -> YahooBrowserPageData:
