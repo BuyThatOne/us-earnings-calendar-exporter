@@ -26,6 +26,7 @@ htmlcov/
 .idea/
 .vscode/
 .worktrees/
+.superpowers/
 
 # Generated earnings exports; keep the directory placeholder tracked.
 exports/earnings-calendar/*.csv
