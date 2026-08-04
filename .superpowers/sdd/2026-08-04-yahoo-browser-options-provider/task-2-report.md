@@ -52,7 +52,27 @@ browser timeout and delay values. The documented environment variables are
 
 ## Concerns
 
-- The full suite cannot be green until the out-of-scope legacy default-order
-  assertion is updated to include `"yahoo_browser"`.
 - Chromium installation is intentionally not attempted here. Operators must run
   `python -m playwright install chromium` before a live CLI execution.
+
+## Review Fix Round 1
+
+### Status
+
+Updated the stale default-provider-order assertion to include the Task 2
+`"yahoo_browser"` fallback. This correction changes only test expectation data;
+it does not alter product behavior.
+
+### Test Commands And Results
+
+1. `pytest tests/options/test_models_and_config.py::test_load_analysis_settings_uses_safe_defaults -v`
+   - RED: `1 failed in 0.02s` because the test expected only
+     `("alpha_vantage", "yahoo")`.
+2. `pytest tests/options/test_models_and_config.py::test_load_analysis_settings_uses_safe_defaults -v`
+   - GREEN: `1 passed in 0.02s`.
+3. `pytest -q`
+   - `112 passed in 0.12s`.
+
+### Commit
+
+`test: align yahoo browser default provider test`
