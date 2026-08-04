@@ -14,6 +14,14 @@ SUPPORTED_FIELDS = ("bid", "ask", "implied_volatility", "open_interest")
 _CONTRACT_SYMBOL = re.compile(r"(?P<root>.+?)(?P<expiration>\d{6})(?P<kind>[CP])\d{8}$")
 _MISSING_VALUE = {"", "-", "none"}
 _RATE_LIMIT_MARKERS = ("rate limit", "too many requests", "try again later")
+_CURRENCY_PREFIX = re.compile(
+    r"^(?P<sign>[+-]?)\s*(?:(?:[A-Z]{1,3})?[$€£¥₹₩₺₽₴₦₱]\s*|[A-Z]{3}\s+)",
+    re.IGNORECASE,
+)
+_CURRENCY_SUFFIX = re.compile(
+    r"\s*(?:(?:[A-Z]{1,3})?[$€£¥₹₩₺₽₴₦₱]|[A-Z]{3})$",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -30,7 +38,7 @@ class YahooBrowserPageData:
 
 
 class YahooBrowserPageReader(Protocol):
-    def read(self, symbol: str) -> YahooBrowserPageData:
+    def read_current_page(self, symbol: str) -> YahooBrowserPageData:
         raise NotImplementedError
 
 
@@ -44,8 +52,9 @@ def _parse_number(value: object, *, percent: bool = False) -> float | None:
     if not isinstance(value, str):
         return None
     cleaned = value.strip().replace(",", "")
-    cleaned = cleaned.replace("$", "").replace("EUR", "").replace("GBP", "")
     cleaned = cleaned.replace("%", "")
+    cleaned = _CURRENCY_PREFIX.sub(r"\g<sign>", cleaned)
+    cleaned = _CURRENCY_SUFFIX.sub("", cleaned)
     try:
         parsed = float(cleaned)
     except (TypeError, ValueError, OverflowError):
@@ -155,7 +164,7 @@ class YahooBrowserOptionsProvider:
         self._clock = clock
 
     def fetch_current_chain(self, symbol: str) -> ProviderResult:
-        return parse_yahoo_browser_page(self._reader.read(symbol), symbol, self._clock())
+        return parse_yahoo_browser_page(self._reader.read_current_page(symbol), symbol, self._clock())
 
     def fetch_historical_chain(self, symbol: str, as_of: date) -> ProviderResult:
         return ProviderResult.unavailable(self.name, "unsupported")

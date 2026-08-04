@@ -111,7 +111,7 @@ def test_browser_provider_reads_page_data_with_its_clock():
     page_data = _page_data()
 
     class Reader:
-        def read(self, symbol: str) -> YahooBrowserPageData:
+        def read_current_page(self, symbol: str) -> YahooBrowserPageData:
             assert symbol == "AAPL"
             return page_data
 
@@ -119,3 +119,67 @@ def test_browser_provider_reads_page_data_with_its_clock():
 
     assert result.snapshot is not None
     assert result.snapshot.collected_at == FIXED_TIME
+
+
+def test_browser_page_normalizes_currency_codes_and_markers():
+    page_data = YahooBrowserPageData(
+        body_text="AAPL Options",
+        underlying_price="CAD 210.50",
+        rows=(
+            YahooBrowserOptionRow(
+                "call",
+                (
+                    "AAPL260821C00200000",
+                    "2026-07-31 10:00 AM EDT",
+                    "C$200.00",
+                    "C$12.50",
+                    "CAD 11.90",
+                    "12.10 CAD",
+                    "+C$0.30",
+                    "+2.46%",
+                    "1,234",
+                    "5,678",
+                    "31.25%",
+                ),
+            ),
+        ),
+    )
+
+    result = parse_yahoo_browser_page(page_data, "AAPL", FIXED_TIME)
+
+    assert result.snapshot is not None
+    assert result.snapshot.underlying_price == 210.50
+    assert result.snapshot.contracts[0].strike == 200.0
+    assert result.snapshot.contracts[0].bid == 11.90
+    assert result.snapshot.contracts[0].ask == 12.10
+
+
+def test_browser_page_rejects_malformed_currency_number_as_partial_data():
+    valid_page = _page_data()
+    malformed_row = YahooBrowserOptionRow(
+        "call",
+        (
+            "AAPL260821C00210000",
+            "2026-07-31 10:00 AM EDT",
+            "CAD not-a-number",
+            "CAD 12.50",
+            "CAD 11.90",
+            "CAD 12.10",
+            "+CAD 0.30",
+            "+2.46%",
+            "1,234",
+            "5,678",
+            "31.25%",
+        ),
+    )
+    page_data = YahooBrowserPageData(
+        body_text=valid_page.body_text,
+        underlying_price="C$210.50",
+        rows=(*valid_page.rows, malformed_row),
+    )
+
+    result = parse_yahoo_browser_page(page_data, "AAPL", FIXED_TIME)
+
+    assert result.snapshot is not None
+    assert result.capability.code == "partial_data"
+    assert len(result.snapshot.contracts) == 2
