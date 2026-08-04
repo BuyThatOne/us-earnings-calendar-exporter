@@ -70,10 +70,7 @@ class PlaywrightYahooPageReader:
         '#quote-header-info fin-streamer[data-field="regularMarketPrice"]',
         '[data-testid="quote-header"] fin-streamer[data-field="regularMarketPrice"]',
     )
-    _OPTION_TABLES = (
-        ("call", "Calls"),
-        ("put", "Puts"),
-    )
+    _OPTION_TABLE_COUNT = 2
 
     def __init__(self, timeout_seconds: float, delay_seconds: float) -> None:
         if not isfinite(timeout_seconds) or timeout_seconds <= 0:
@@ -107,21 +104,39 @@ class PlaywrightYahooPageReader:
         return next((text.strip() for text in texts if text.strip()), None)
 
     @classmethod
+    def _option_type_from_rows(cls, rows: list[tuple[str, ...]]) -> str | None:
+        for cells in rows:
+            if not cells:
+                continue
+            match = _CONTRACT_SYMBOL.fullmatch(cells[0])
+            if match is not None:
+                return "call" if match.group("kind") == "C" else "put"
+        return None
+
+    @classmethod
     def _extract_rows(
         cls,
         page,
-        option_type: str,
-        table_name: str,
         timeout_ms: float,
     ) -> tuple[YahooBrowserOptionRow, ...]:
         try:
-            rows = page.get_by_role("table", name=table_name, exact=True).locator("tbody tr")
-            rows.first.wait_for(state="visible", timeout=timeout_ms)
             extracted = []
-            for index in range(rows.count()):
-                cells = tuple(text.strip() for text in rows.nth(index).locator("td").all_inner_texts())
-                if cells:
-                    extracted.append(YahooBrowserOptionRow(option_type=option_type, cells=cells))
+            tables = page.locator("table")
+            # Yahoo renders the calls and puts tables first, without accessible names.
+            for table_index in range(min(tables.count(), cls._OPTION_TABLE_COUNT)):
+                rows = tables.nth(table_index).locator("tbody tr")
+                rows.first.wait_for(state="visible", timeout=timeout_ms)
+                table_rows = [
+                    tuple(text.strip() for text in rows.nth(row_index).locator("td").all_inner_texts())
+                    for row_index in range(rows.count())
+                ]
+                option_type = cls._option_type_from_rows(table_rows)
+                if option_type is not None:
+                    extracted.extend(
+                        YahooBrowserOptionRow(option_type=option_type, cells=cells)
+                        for cells in table_rows
+                        if cells
+                    )
             return tuple(extracted)
         except Exception:
             return ()
@@ -153,16 +168,7 @@ class PlaywrightYahooPageReader:
                 (text for selector in self._QUOTE_SELECTORS if (text := self._visible_text(page, selector))),
                 None,
             )
-            rows = tuple(
-                row
-                for option_type, table_name in self._OPTION_TABLES
-                for row in self._extract_rows(
-                    page,
-                    option_type,
-                    table_name,
-                    self._timeout_seconds * 1_000,
-                )
-            )
+            rows = self._extract_rows(page, self._timeout_seconds * 1_000)
             return YahooBrowserPageData(
                 body_text=body_text,
                 underlying_price=underlying_price,

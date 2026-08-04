@@ -53,15 +53,32 @@ class _FakeRows:
     def wait_for(self, *, state: str, timeout: float) -> None:
         self._waits.append((state, timeout))
 
-    def locator(self, selector: str) -> "_FakeRows":
-        assert selector == "tbody tr"
-        return self
-
     def count(self) -> int:
         return len(self._rows)
 
     def nth(self, index: int) -> _FakeRow:
         return self._rows[index]
+
+
+class _FakeTable:
+    def __init__(self, rows: tuple[_FakeRow, ...], waits: list[tuple[str, float]]) -> None:
+        self._rows = rows
+        self._waits = waits
+
+    def locator(self, selector: str) -> _FakeRows:
+        assert selector == "tbody tr"
+        return _FakeRows(self._rows, self._waits)
+
+
+class _FakeTables:
+    def __init__(self, tables: tuple[_FakeTable, ...]) -> None:
+        self._tables = tables
+
+    def count(self) -> int:
+        return len(self._tables)
+
+    def nth(self, index: int) -> _FakeTable:
+        return self._tables[index]
 
 
 class _FakeText:
@@ -84,6 +101,7 @@ class _FakePage:
         self._response_status = response_status
         self._fixture = json.loads((FIXTURES / "current_page.json").read_text())
         self.row_waits: list[tuple[str, float]] = []
+        self.table_queries: list[str] = []
         self.url: str | None = None
 
     def goto(self, url: str, *, wait_until: str, timeout: float) -> _FakeResponse:
@@ -107,13 +125,17 @@ class _FakePage:
             return _FakeText((self._fixture["quote"]["header_market_price"],))
         if "regularMarketPrice" in selector:
             return _FakeText((self._fixture["quote"]["sidebar_market_price"],))
+        if selector == "table":
+            self.table_queries.append(selector)
+            tables = tuple(
+                _FakeTable(
+                    tuple(_FakeRow(tuple(cells)) for cells in table["rows"]),
+                    self.row_waits,
+                )
+                for table in self._fixture["tables"]
+            )
+            return _FakeTables(tables)
         return _FakeRows((), self.row_waits)
-
-    def get_by_role(self, role: str, *, name: str, exact: bool):
-        assert role == "table"
-        assert exact is True
-        rows = tuple(_FakeRow(tuple(cells)) for cells in self._fixture["tables"].get(name, ()))
-        return _FakeRows(rows, self.row_waits)
 
     def close(self) -> None:
         self._events.append("page.close")
@@ -220,7 +242,7 @@ def test_playwright_reader_maps_startup_failure_to_browser_unavailable(monkeypat
     assert result.capability.code == "browser_unavailable"
 
 
-def test_playwright_reader_extracts_captured_current_page_and_closes_resources(monkeypatch):
+def test_playwright_reader_extracts_unnamed_option_tables_and_closes_resources(monkeypatch):
     runtime, page, events = _playwright_runtime()
     monkeypatch.setattr(yahoo_browser_options, "_sync_playwright", lambda: runtime)
     reader = PlaywrightYahooPageReader(timeout_seconds=20.0, delay_seconds=0.0)
@@ -231,6 +253,7 @@ def test_playwright_reader_extracts_captured_current_page_and_closes_resources(m
     assert page.url == "https://ca.finance.yahoo.com/quote/AAPL/options/"
     assert page_data.underlying_price == "$210.50"
     assert page_data.rows == _page_data().rows
+    assert page.table_queries == ["table"]
     assert page.row_waits == [("visible", 20_000.0), ("visible", 20_000.0)]
     assert events == [
         "chromium.launch",
