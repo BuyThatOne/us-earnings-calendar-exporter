@@ -39,6 +39,8 @@ def fetch_market_caps(symbols: list[str], session: requests.Session) -> dict[str
             headers={"User-Agent": "Mozilla/5.0", "Referer": "https://finviz.com/"},
             timeout=30,
         )
+        if response.status_code == requests.codes.too_many_requests:
+            break
         response.raise_for_status()
         market_cap = extract_market_cap_from_html(response.text)
         if market_cap is not None:
