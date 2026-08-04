@@ -14,9 +14,11 @@ Run the workflow from the project working directory:
 /Users/yongningzhang/Documents/earnings
 ```
 
-Set `ALPHAVANTAGE_API_KEY` in the automation environment before the run. Provide
-the variable through the scheduler's environment configuration; do not place its
-value in this repository, the prompt, logs, or generated artifacts.
+Complete the one-time local setup in
+[`local-credentials.md`](local-credentials.md). The loader checks the
+automation environment first, then the owner-only local credentials file. Do not
+place the key value in this repository, the prompt, logs, or generated
+artifacts.
 
 ## Manual Run
 
@@ -61,8 +63,10 @@ working_directory: /Users/yongningzhang/Documents/earnings
 ```
 
 This runs every Friday at 10:00 in `America/New_York`. Configure the scheduler to
-invoke the prompt from the project working directory with `ALPHAVANTAGE_API_KEY`
-available only in its environment.
+invoke the prompt from the project working directory. Through the scheduler's
+environment configuration, `ALPHAVANTAGE_API_KEY` may be provided in its
+environment; that value takes precedence over the local file. Otherwise the
+local loader reads the configured credentials file.
 
 ## Failures And Disabling
 
@@ -73,4 +77,4 @@ do not fabricate a summary, and do not submit or simulate an order.
 To disable the workflow, disable or delete the project-level cron schedule. Leave
 the versioned prompt and this runbook in place so the configuration remains
 reviewable. Re-enable it only after restoring the same cron expression, timezone,
-working directory, and environment-only `ALPHAVANTAGE_API_KEY` setup.
+working directory, and credentials setup.

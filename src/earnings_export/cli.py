@@ -8,6 +8,7 @@ from pathlib import Path
 import requests
 
 from earnings_export.date_window import get_next_week_window
+from earnings_export.credentials import DEFAULT_CREDENTIALS_PATH
 from earnings_export.export.csv_writer import write_export_csv
 from earnings_export.export.options_report import OptionsArtifactPaths, write_options_artifacts
 from earnings_export.options_config import load_analysis_settings
@@ -23,6 +24,13 @@ from earnings_export.sources.yahoo_options import YahooOptionsProvider
 
 
 MIN_OPTIONS_MARKET_CAP = 50_000_000_000
+
+
+def initialize_credentials_file(path: Path = DEFAULT_CREDENTIALS_PATH) -> Path:
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    path.touch(mode=0o600, exist_ok=True)
+    path.chmod(0o600)
+    return path
 
 
 def run_export_next_week(
@@ -76,6 +84,9 @@ def run_analyze_next_week_options(
 
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
+    if argv == ["init-local-credentials"]:
+        print(initialize_credentials_file(DEFAULT_CREDENTIALS_PATH))
+        return 0
     if argv == ["export-next-week"]:
         print(run_export_next_week())
         return 0
@@ -86,5 +97,5 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     raise SystemExit(
         "Usage: python -m earnings_export "
-        "{export-next-week|analyze-next-week-options}"
+        "{init-local-credentials|export-next-week|analyze-next-week-options}"
     )

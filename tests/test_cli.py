@@ -34,12 +34,22 @@ def test_main_returns_zero_for_stubbed_export_command(monkeypatch):
     assert main(["export-next-week"]) == 0
 
 
+def test_init_local_credentials_creates_owner_only_file(monkeypatch, tmp_path, capsys):
+    credentials = tmp_path / "config" / "credentials.env"
+    monkeypatch.setattr("earnings_export.cli.DEFAULT_CREDENTIALS_PATH", credentials)
+    assert main(["init-local-credentials"]) == 0
+    assert credentials.exists()
+    assert credentials.stat().st_mode & 0o077 == 0
+    assert str(credentials) in capsys.readouterr().out
+    assert credentials.read_text() == ""
+
+
 def test_main_reads_process_arguments_when_argv_is_none(monkeypatch):
     monkeypatch.setattr("sys.argv", ["earnings-export", "not-a-command"])
 
     with pytest.raises(
         SystemExit,
-        match=r"Usage: python -m earnings_export \{export-next-week\|analyze-next-week-options\}",
+        match=r"Usage: python -m earnings_export \{init-local-credentials\|export-next-week\|analyze-next-week-options\}",
     ):
         main()
 
