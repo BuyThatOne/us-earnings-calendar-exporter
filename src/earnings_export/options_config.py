@@ -37,7 +37,7 @@ def _browser_timing(environ: Mapping[str, str], name: str, default: str, *, posi
 
 
 def load_analysis_settings(environ: Mapping[str, str], cwd: Path) -> AnalysisSettings:
-    spread_limit = float(environ.get("EARNINGS_OPTIONS_MAX_SPREAD_PCT", "0.15"))
+    spread_limit = float(environ.get("EARNINGS_OPTIONS_MAX_SPREAD_PCT", "0.10"))
     if not 0 < spread_limit <= 1:
         raise ValueError("spread_limit must be greater than 0 and no greater than 1")
     browser_timeout_seconds = _browser_timing(

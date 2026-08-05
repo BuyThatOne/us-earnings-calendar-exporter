@@ -26,7 +26,7 @@ def test_load_analysis_settings_uses_safe_defaults(tmp_path):
     settings = load_analysis_settings({}, tmp_path)
 
     assert settings.output_dir == tmp_path / "exports/earnings-options"
-    assert settings.spread_limit == 0.15
+    assert settings.spread_limit == 0.10
     assert settings.provider_order == ("alpha_vantage", "yahoo", "yahoo_browser")
     assert settings.alpha_vantage_api_key is None
 
