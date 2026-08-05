@@ -22,6 +22,9 @@ earnings-export = "earnings_export.cli:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "integration: exercises a public external service using a real browser",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
