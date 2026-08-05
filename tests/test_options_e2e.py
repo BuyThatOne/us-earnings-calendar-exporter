@@ -5,6 +5,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 
 from earnings_export.cli import main
+from earnings_export.sources.optionslam_evr import EvrResult
 from earnings_export.sources.alpha_vantage_options import ALPHA_VANTAGE_URL
 from earnings_export.sources.optionslam_evr import OPTIONSLAM_URL
 from earnings_export.sources.yahoo_options import YAHOO_OPTIONS_URL
@@ -130,6 +131,26 @@ def test_options_command_writes_fixture_backed_research_only_candidate_artifacts
     assert snapshots["snapshots"][0]["underlying_price"] == 210.5
     assert "underlying_price_from_yahoo" in snapshots["snapshots"][0]["data_quality_flags"]
     assert FIXTURE_API_KEY not in artifact_text
+
+
+def test_run_analyze_next_week_options_passes_local_optionslam_credentials(monkeypatch, tmp_path):
+    observed = {}
+
+    class RecordingEvrProvider:
+        def __init__(self, session, clock=lambda: FIXED_RUN_AT, username=None, password=None):
+            observed["username"] = username
+            observed["password"] = password
+
+        def fetch_public_evr(self, symbol):
+            return EvrResult(None, f"https://fixture/{symbol}", "unavailable", FIXED_RUN_AT)
+
+    monkeypatch.setattr("earnings_export.cli.OptionSlamEvrProvider", RecordingEvrProvider)
+    monkeypatch.setenv("OPTIONSLAM_USERNAME", "env-user")
+    monkeypatch.setenv("OPTIONSLAM_PASSWORD", "env-pass")
+
+    _run_options_command(monkeypatch, tmp_path, "alpha_liquid_call_put.json")
+
+    assert observed == {"username": "env-user", "password": "env-pass"}
 
 
 def test_options_command_writes_empty_artifacts_when_quotes_exceed_spread_limit(

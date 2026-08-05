@@ -29,11 +29,14 @@ file cannot be loaded by this application on non-POSIX systems. Use a
 non-empty `ALPHAVANTAGE_API_KEY` environment value on those platforms instead.
 
 Open the file in a local text editor and enter the dotenv-style
-`ALPHAVANTAGE_API_KEY` entry and its local value. Do not put the value in a
-shell command, shell history, this repository, logs, prompts, or generated
-artifacts.
+`ALPHAVANTAGE_API_KEY`, `OPTIONSLAM_USERNAME`, and `OPTIONSLAM_PASSWORD`
+entries and their local values. The OptionSlam credentials use this same
+owner-only credentials file. Keep all credential values local; they must never
+be committed. Do not put them in a shell command, shell history, this repository,
+logs, prompts, or generated artifacts.
 
-The loader uses a non-empty `ALPHAVANTAGE_API_KEY` process-environment value in
-preference to the file. If the environment does not provide a key, the weekly
+The loader uses non-empty process-environment values in preference to the file
+(environment precedence) for `ALPHAVANTAGE_API_KEY`, `OPTIONSLAM_USERNAME`, and
+`OPTIONSLAM_PASSWORD`. If the environment does not provide a value, the weekly
 local Codex task uses the same loader and reads this file. The loader rejects a
 file readable by group or others on POSIX systems.

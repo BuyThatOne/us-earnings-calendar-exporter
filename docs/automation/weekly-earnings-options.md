@@ -16,8 +16,10 @@ Run the workflow from the project working directory:
 
 Complete the one-time local setup in
 [`local-credentials.md`](local-credentials.md). The loader checks the
-automation environment first, then the owner-only local credentials file. Do not
-place the key value in this repository, the prompt, logs, or generated
+automation environment first, then the same owner-only local credentials file.
+`OPTIONSLAM_USERNAME` and `OPTIONSLAM_PASSWORD` may be stored in that file as
+well. Environment precedence applies when both sources provide a value. These
+credentials must never be committed or placed in the prompt, logs, or generated
 artifacts.
 
 Install the standalone Chromium runtime used by the Yahoo browser fallback:
@@ -76,9 +78,10 @@ working_directory: /Users/yongningzhang/Documents/earnings
 
 This runs every Friday at 10:00 in `America/New_York`. Configure the scheduler to
 invoke the prompt from the project working directory. Through the scheduler's
-environment configuration, `ALPHAVANTAGE_API_KEY` may be provided in its
-environment; that value takes precedence over the local file. Otherwise the
-local loader reads the configured credentials file.
+environment configuration, `ALPHAVANTAGE_API_KEY`, `OPTIONSLAM_USERNAME`, and
+`OPTIONSLAM_PASSWORD` may be provided in its environment; those values take
+precedence over the local file. Otherwise the local loader reads the configured
+credentials file. These credentials must never be committed.
 
 ## Failures And Disabling
 

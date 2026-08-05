@@ -40,6 +40,8 @@ def test_runbook_documents_the_scheduled_research_only_workflow():
     assert "0 10 * * 5" in runbook
     assert "America/New_York" in runbook
     assert "ALPHAVANTAGE_API_KEY" in runbook
+    assert "OPTIONSLAM_USERNAME" in runbook
+    assert "OPTIONSLAM_PASSWORD" in runbook
     assert "PYTHONPATH=src python3 -m earnings_export analyze-next-week-options" in runbook
     assert "exports/earnings-options/<YYYY-MM-DD>/earnings_options_research.md" in runbook
     assert "exports/earnings-options/<YYYY-MM-DD>/earnings_options_order_intents.json" in runbook
@@ -49,6 +51,9 @@ def test_runbook_documents_the_scheduled_research_only_workflow():
     assert "versioned prompt" in normalized_runbook
     assert f"working_directory: {PROJECT_ROOT}" in runbook
     assert "environment configuration" in normalized_runbook
+    assert "same owner-only local credentials file" in normalized_runbook
+    assert "environment precedence" in normalized_runbook
+    assert "never be committed" in normalized_runbook
     assert re.search(
         r"alphavantage_api_key.{0,160}(?:environment|env)"
         r"|(?:environment|env).{0,160}alphavantage_api_key",
@@ -81,6 +86,11 @@ def test_local_credentials_doc_covers_secure_setup_contract():
     assert "owner-only mode `0700`" in documentation
     assert "open the file in a local text editor" in normalized_documentation
     assert "alphavantage_api_key" in normalized_documentation
+    assert "OPTIONSLAM_USERNAME" in documentation
+    assert "OPTIONSLAM_PASSWORD" in documentation
+    assert "same owner-only credentials file" in normalized_documentation
+    assert "environment precedence" in normalized_documentation
+    assert "never be committed" in normalized_documentation
     assert re.search(
         r"environment.{0,120}preference to the file"
         r"|preference to the file.{0,120}environment",
