@@ -2,7 +2,42 @@ import os
 
 import pytest
 
-from earnings_export.credentials import load_alpha_vantage_api_key
+from earnings_export.credentials import (
+    load_alpha_vantage_api_key,
+    load_named_credential,
+    load_optionslam_credentials,
+)
+
+
+def test_load_named_credential_reads_requested_key_only(tmp_path):
+    credentials = tmp_path / "credentials.env"
+    credentials.write_text(
+        "# local settings\n"
+        "ALPHAVANTAGE_API_KEY=test-key\n"
+        "OPTIONSLAM_USERNAME=proto-user\n"
+        "OPTIONSLAM_PASSWORD=proto-pass\n"
+    )
+    credentials.chmod(0o600)
+
+    assert load_named_credential({}, "OPTIONSLAM_USERNAME", credentials) == "proto-user"
+    assert load_named_credential({}, "OPTIONSLAM_PASSWORD", credentials) == "proto-pass"
+
+
+def test_optionslam_environment_values_take_precedence_over_file(tmp_path):
+    credentials = tmp_path / "credentials.env"
+    credentials.write_text(
+        "OPTIONSLAM_USERNAME=file-user\n"
+        "OPTIONSLAM_PASSWORD=file-pass\n"
+    )
+    credentials.chmod(0o600)
+
+    assert load_optionslam_credentials(
+        {
+            "OPTIONSLAM_USERNAME": "env-user",
+            "OPTIONSLAM_PASSWORD": "env-pass",
+        },
+        credentials,
+    ) == ("env-user", "env-pass")
 
 
 def test_loads_only_alpha_vantage_key_from_owner_only_file(tmp_path):

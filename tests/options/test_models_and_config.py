@@ -26,7 +26,7 @@ def test_load_analysis_settings_uses_safe_defaults(tmp_path):
     settings = load_analysis_settings({}, tmp_path)
 
     assert settings.output_dir == tmp_path / "exports/earnings-options"
-    assert settings.spread_limit == 0.10
+    assert settings.spread_limit == 0.15
     assert settings.provider_order == ("alpha_vantage", "yahoo", "yahoo_browser")
     assert settings.alpha_vantage_api_key is None
 
@@ -55,6 +55,23 @@ def test_load_analysis_settings_reads_owner_only_credentials_file(tmp_path, monk
     settings = load_analysis_settings({}, tmp_path)
 
     assert settings.alpha_vantage_api_key == "file-key"
+
+
+def test_load_analysis_settings_reads_local_optionslam_credentials(tmp_path, monkeypatch):
+    credentials = tmp_path / "credentials.env"
+    credentials.write_text(
+        "ALPHAVANTAGE_API_KEY=file-key\n"
+        "OPTIONSLAM_USERNAME=proto-user\n"
+        "OPTIONSLAM_PASSWORD=proto-pass\n"
+    )
+    credentials.chmod(0o600)
+    monkeypatch.setattr(options_config, "DEFAULT_CREDENTIALS_PATH", credentials)
+
+    settings = load_analysis_settings({}, tmp_path)
+
+    assert settings.alpha_vantage_api_key == "file-key"
+    assert settings.optionslam_username == "proto-user"
+    assert settings.optionslam_password == "proto-pass"
 
 
 @pytest.mark.parametrize("value", ("0", "-0.1", "1.01"))

@@ -5,7 +5,11 @@ from math import isfinite
 from pathlib import Path
 from typing import Mapping
 
-from earnings_export.credentials import DEFAULT_CREDENTIALS_PATH, load_alpha_vantage_api_key
+from earnings_export.credentials import (
+    DEFAULT_CREDENTIALS_PATH,
+    load_alpha_vantage_api_key,
+    load_optionslam_credentials,
+)
 
 
 @dataclass(frozen=True)
@@ -16,6 +20,8 @@ class AnalysisSettings:
     alpha_vantage_api_key: str | None
     browser_timeout_seconds: float = 20.0
     browser_delay_seconds: float = 1.0
+    optionslam_username: str | None = None
+    optionslam_password: str | None = None
 
 
 def _browser_timing(environ: Mapping[str, str], name: str, default: str, *, positive: bool) -> float:
@@ -31,7 +37,7 @@ def _browser_timing(environ: Mapping[str, str], name: str, default: str, *, posi
 
 
 def load_analysis_settings(environ: Mapping[str, str], cwd: Path) -> AnalysisSettings:
-    spread_limit = float(environ.get("EARNINGS_OPTIONS_MAX_SPREAD_PCT", "0.10"))
+    spread_limit = float(environ.get("EARNINGS_OPTIONS_MAX_SPREAD_PCT", "0.15"))
     if not 0 < spread_limit <= 1:
         raise ValueError("spread_limit must be greater than 0 and no greater than 1")
     browser_timeout_seconds = _browser_timing(
@@ -47,6 +53,10 @@ def load_analysis_settings(environ: Mapping[str, str], cwd: Path) -> AnalysisSet
         positive=False,
     )
 
+    optionslam_username, optionslam_password = load_optionslam_credentials(
+        environ, DEFAULT_CREDENTIALS_PATH
+    )
+
     return AnalysisSettings(
         output_dir=cwd / environ.get("EARNINGS_OPTIONS_OUTPUT_DIR", "exports/earnings-options"),
         spread_limit=spread_limit,
@@ -54,4 +64,6 @@ def load_analysis_settings(environ: Mapping[str, str], cwd: Path) -> AnalysisSet
         alpha_vantage_api_key=load_alpha_vantage_api_key(environ, DEFAULT_CREDENTIALS_PATH),
         browser_timeout_seconds=browser_timeout_seconds,
         browser_delay_seconds=browser_delay_seconds,
+        optionslam_username=optionslam_username,
+        optionslam_password=optionslam_password,
     )

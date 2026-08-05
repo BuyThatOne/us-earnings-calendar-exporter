@@ -52,16 +52,34 @@ def _open_credentials_file(credentials_path: Path) -> int | None:
     return descriptor
 
 
-def load_alpha_vantage_api_key(
-    environ: Mapping[str, str], credentials_path: Path = DEFAULT_CREDENTIALS_PATH
+def load_named_credential(
+    environ: Mapping[str, str],
+    credential_name: str,
+    credentials_path: Path = DEFAULT_CREDENTIALS_PATH,
 ) -> str | None:
-    if environ.get("ALPHAVANTAGE_API_KEY"):
-        return environ["ALPHAVANTAGE_API_KEY"]
+    if environ.get(credential_name):
+        return environ[credential_name]
     descriptor = _open_credentials_file(credentials_path)
     if descriptor is None:
         return None
     with os.fdopen(descriptor, encoding="utf-8") as credentials_file:
         for line in credentials_file:
-            if line.startswith("ALPHAVANTAGE_API_KEY="):
+            if line.startswith(f"{credential_name}="):
                 return line.partition("=")[2].strip() or None
     return None
+
+
+def load_alpha_vantage_api_key(
+    environ: Mapping[str, str], credentials_path: Path = DEFAULT_CREDENTIALS_PATH
+) -> str | None:
+    return load_named_credential(environ, "ALPHAVANTAGE_API_KEY", credentials_path)
+
+
+def load_optionslam_credentials(
+    environ: Mapping[str, str],
+    credentials_path: Path = DEFAULT_CREDENTIALS_PATH,
+) -> tuple[str | None, str | None]:
+    return (
+        load_named_credential(environ, "OPTIONSLAM_USERNAME", credentials_path),
+        load_named_credential(environ, "OPTIONSLAM_PASSWORD", credentials_path),
+    )
