@@ -213,6 +213,7 @@ def analyze_events(
             current_snapshot,
             history,
             settings.spread_limit,
+            event.earnings_time,
         )
         if not event_candidates:
             exclusions["missing_liquid_chain"] += 1

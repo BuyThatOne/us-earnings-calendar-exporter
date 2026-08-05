@@ -327,3 +327,83 @@ def test_analyze_events_treats_malformed_yahoo_response_as_nonfatal(tmp_path):
     assert result.exclusions == {"missing_current_chain": 1}
     assert result.capabilities[1].provider == "yahoo"
     assert result.capabilities[1].code == "invalid_response"
+
+
+def test_analyze_events_selects_expiration_that_covers_each_event_time(tmp_path):
+    same_day_expiration = date(2026, 8, 6)
+    next_expiration = date(2026, 8, 7)
+    capability = ProviderCapability("alpha_vantage", True, "available")
+    contracts = (
+        OptionContract(
+            option_symbol="same-day-call",
+            option_type="call",
+            expiration=same_day_expiration,
+            strike=100.0,
+            bid=3.8,
+            ask=4.2,
+        ),
+        OptionContract(
+            option_symbol="same-day-put",
+            option_type="put",
+            expiration=same_day_expiration,
+            strike=100.0,
+            bid=3.8,
+            ask=4.2,
+        ),
+        OptionContract(
+            option_symbol="next-day-call",
+            option_type="call",
+            expiration=next_expiration,
+            strike=100.0,
+            bid=4.8,
+            ask=5.2,
+        ),
+        OptionContract(
+            option_symbol="next-day-put",
+            option_type="put",
+            expiration=next_expiration,
+            strike=100.0,
+            bid=4.8,
+            ask=5.2,
+        ),
+    )
+    alpha = RecordingProvider(
+        "alpha_vantage",
+        ProviderResult(
+            snapshot=OptionChainSnapshot(
+                symbol="AAPL",
+                collected_at=FIXED_TIME,
+                provider="alpha_vantage",
+                provider_capabilities=(capability,),
+                underlying_price=100.0,
+                contracts=contracts,
+            ),
+            capability=capability,
+        ),
+    )
+
+    result = analyze_events(
+        [
+            _event("AAPL"),
+            EarningsEvent(
+                earnings_date=EARNINGS_DATE,
+                ticker="MSFT",
+                company_name="Microsoft",
+                earnings_time="BMO",
+                exchange="NASDAQ",
+                source_calendar_url="https://calendar.test/msft",
+            ),
+        ],
+        [alpha],
+        _settings(tmp_path),
+        FIXED_TIME,
+    )
+
+    expirations_by_ticker = {
+        candidate.ticker: {leg.expiration for leg in candidate.legs}
+        for candidate in result.candidates
+        if candidate.strategy_type == "straddle"
+    }
+
+    assert expirations_by_ticker["AAPL"] == {next_expiration}
+    assert expirations_by_ticker["MSFT"] == {same_day_expiration}

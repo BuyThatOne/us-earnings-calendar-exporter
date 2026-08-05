@@ -159,12 +159,30 @@ def _rank_key(
     )
 
 
+def _expiration_covers_event(
+    expiration: date,
+    earnings_date: date,
+    earnings_time: str | None,
+) -> bool:
+    if expiration < earnings_date:
+        return False
+
+    if earnings_time is None:
+        return True
+
+    normalized = earnings_time.strip().upper()
+    if normalized == "AMC" or ("AFTER" in normalized and "CLOSE" in normalized):
+        return expiration > earnings_date
+    return True
+
+
 def build_ranked_candidates(
     ticker: str,
     earnings_date: date,
     snapshot: OptionChainSnapshot,
     history: EarningsMoveHistory,
     spread_limit: float,
+    earnings_time: str | None = None,
 ) -> list[StrategyCandidate]:
     spot = snapshot.underlying_price
     if spot is None or spot <= 0:
@@ -174,7 +192,8 @@ def build_ranked_candidates(
         {
             contract.expiration
             for contract in snapshot.contracts
-            if contract.expiration is not None and contract.expiration >= earnings_date
+            if contract.expiration is not None
+            and _expiration_covers_event(contract.expiration, earnings_date, earnings_time)
         }
     )
     if not expirations:
