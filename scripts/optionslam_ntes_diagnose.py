@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime, timezone
+import os
 from pathlib import Path
 from typing import Sequence
 
@@ -65,41 +66,59 @@ def _run_fixture(fixture_path: Path, symbol: str, status_code: int) -> int:
 
 def _run_live(symbol: str) -> int:
     session = requests.Session()
-    username, password = load_optionslam_credentials({})
+    username, password = load_optionslam_credentials(os.environ)
     provider = OptionSlamEvrProvider(
         session=session,
         username=username,
         password=password,
     )
     source_url = OPTIONSLAM_URL.format(symbol=symbol.lower())
-    response = session.get(
-        source_url,
-        headers={"User-Agent": "Mozilla/5.0"},
-        timeout=30,
-        allow_redirects=False,
-    )
+    try:
+        response = session.get(
+            source_url,
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=30,
+            allow_redirects=False,
+        )
+    except requests.RequestException:
+        print(
+            f"symbol={symbol} mode=live http_status=unavailable "
+            f"final_url={source_url} result_status=request_failed"
+        )
+        return 0
     result = diagnose_optionslam_response(
         response.text,
         getattr(response, "status_code", 200),
         symbol,
         source_url,
         datetime.now(timezone.utc),
+        getattr(response, "headers", {}).get("Location"),
+        getattr(response, "url", None),
     )
 
     if result.status == "authentication_required" and username and password:
         if provider._login():
-            response = session.get(
-                source_url,
-                headers={"User-Agent": "Mozilla/5.0"},
-                timeout=30,
-                allow_redirects=False,
-            )
+            try:
+                response = session.get(
+                    source_url,
+                    headers={"User-Agent": "Mozilla/5.0"},
+                    timeout=30,
+                    allow_redirects=False,
+                )
+            except requests.RequestException:
+                print(
+                    f"symbol={symbol} mode=live http_status=unavailable "
+                    f"final_url={source_url} result_status=request_failed"
+                )
+                return 0
             result = diagnose_optionslam_response(
                 response.text,
                 getattr(response, "status_code", 200),
                 symbol,
                 source_url,
                 datetime.now(timezone.utc),
+                getattr(response, "headers", {}).get("Location"),
+                getattr(response, "url", None),
             )
         else:
             result = type(result)(None, source_url, "login_failed", result.collected_at)

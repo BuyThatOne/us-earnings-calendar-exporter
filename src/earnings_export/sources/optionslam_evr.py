@@ -38,7 +38,11 @@ def diagnose_optionslam_response(
     symbol: str,
     source_url: str,
     collected_at: datetime,
+    location: str | None = None,
+    response_url: str | None = None,
 ) -> EvrResult:
+    if _is_login_redirect(status_code, location, response_url):
+        return EvrResult(None, source_url, "authentication_required", collected_at)
     parsed = parse_optionslam_evr(html, symbol, source_url, collected_at)
     if parsed.status == "authentication_required":
         return parsed
@@ -64,16 +68,11 @@ class OptionSlamEvrProvider:
         self._authenticated = False
         self._login_attempted = False
 
-    def _fetch_symbol(self, symbol: str) -> EvrResult:
+    def _fetch_symbol(self, symbol: str, *, public: bool = False) -> EvrResult:
         source_url = OPTIONSLAM_URL.format(symbol=symbol.strip().lower())
         collected_at = self._clock()
         try:
-            response = self._session.get(
-                source_url,
-                headers={"User-Agent": "Mozilla/5.0"},
-                timeout=30,
-                allow_redirects=False,
-            )
+            response = self._get_symbol(source_url, public=public)
         except requests.RequestException:
             return EvrResult(None, source_url, "request_failed", collected_at)
         return diagnose_optionslam_response(
@@ -82,7 +81,26 @@ class OptionSlamEvrProvider:
             symbol,
             source_url,
             collected_at,
+            getattr(response, "headers", {}).get("Location"),
+            getattr(response, "url", None),
         )
+
+    def _get_symbol(self, source_url: str, *, public: bool):
+        request_kwargs = {
+            "headers": {"User-Agent": "Mozilla/5.0"},
+            "timeout": 30,
+            "allow_redirects": False,
+        }
+        cookies = getattr(self._session, "cookies", None)
+        if not public or cookies is None:
+            return self._session.get(source_url, **request_kwargs)
+
+        authenticated_cookies = cookies.copy()
+        cookies.clear()
+        try:
+            return self._session.get(source_url, **request_kwargs)
+        finally:
+            cookies.update(authenticated_cookies)
 
     def _login(self) -> bool:
         if self._authenticated:
@@ -119,7 +137,7 @@ class OptionSlamEvrProvider:
         return True
 
     def fetch_public_evr(self, symbol: str) -> EvrResult:
-        public_result = self._fetch_symbol(symbol)
+        public_result = self._fetch_symbol(symbol, public=True)
         if public_result.status == "available":
             return public_result
         if public_result.status != "authentication_required":
@@ -139,3 +157,11 @@ class OptionSlamEvrProvider:
 def _requires_authentication(html: str) -> bool:
     lowered = html.lower()
     return "sign in" in lowered or "membership" in lowered
+
+
+def _is_login_redirect(
+    status_code: int, location: str | None, response_url: str | None,
+) -> bool:
+    if not 300 <= status_code < 400:
+        return False
+    return any(value and "/login" in value.lower() for value in (location, response_url))

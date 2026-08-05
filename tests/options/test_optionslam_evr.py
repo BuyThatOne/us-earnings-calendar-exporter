@@ -5,6 +5,7 @@ import pytest
 import requests
 
 from earnings_export.sources.optionslam_evr import (
+    OPTIONSLAM_LOGIN_URL,
     OptionSlamEvrProvider,
     parse_optionslam_evr,
 )
@@ -97,6 +98,14 @@ class LoginResponse:
         return None
 
 
+class RedirectResponse(LoginResponse):
+    def __init__(self, location: str):
+        super().__init__("")
+        self.status_code = 302
+        self.headers = {"Location": location}
+        self.url = "https://www.optionslam.com/aapl/"
+
+
 class LoginThenSymbolSession:
     def __init__(self, public_html: str, authenticated_html: str):
         self.public_html = public_html
@@ -181,6 +190,80 @@ def test_fetch_public_evr_uses_authenticated_fallback_after_membership_gate(load
     assert result.status == "available"
     assert session.login_calls == 1
     assert session.symbol_get_calls == 2
+
+
+def test_fetch_public_evr_uses_authenticated_fallback_after_login_redirect():
+    class RedirectLoginSession:
+        def __init__(self):
+            self.login_calls = 0
+            self.symbol_get_calls = 0
+
+        def get(self, url, *args, **kwargs):
+            if url == SOURCE_URL:
+                self.symbol_get_calls += 1
+                if self.symbol_get_calls == 1:
+                    return RedirectResponse("/login/")
+                return LoginResponse("<p>EVR: 6.5%</p>")
+            return LoginResponse("<html><body>Sign in</body></html>")
+
+        def post(self, *args, **kwargs):
+            self.login_calls += 1
+            return LoginResponse("<html><body>Signed in</body></html>")
+
+    session = RedirectLoginSession()
+    provider = OptionSlamEvrProvider(
+        session=session,
+        clock=lambda: FIXED_TIME,
+        username="proto-user",
+        password="proto-pass",
+    )
+
+    result = provider.fetch_public_evr("AAPL")
+
+    assert result.value == 6.5
+    assert result.status == "available"
+    assert session.login_calls == 1
+
+
+def test_fetch_public_evr_uses_one_login_but_starts_each_gated_symbol_without_cookies():
+    class GatedSymbolsSession:
+        def __init__(self):
+            self.cookies = {}
+            self.login_calls = 0
+            self.symbol_requests = []
+
+        def get(self, url, *args, **kwargs):
+            if url == OPTIONSLAM_LOGIN_URL:
+                return LoginResponse("<html><body>Sign in</body></html>")
+            self.symbol_requests.append((url, dict(self.cookies)))
+            if self.cookies:
+                return LoginResponse("<p>EVR: 6.5%</p>")
+            return RedirectResponse("/login/")
+
+        def post(self, *args, **kwargs):
+            self.login_calls += 1
+            self.cookies["session"] = "authenticated"
+            return LoginResponse("<html><body>Signed in</body></html>")
+
+    session = GatedSymbolsSession()
+    provider = OptionSlamEvrProvider(
+        session=session,
+        clock=lambda: FIXED_TIME,
+        username="proto-user",
+        password="proto-pass",
+    )
+
+    aapl = provider.fetch_public_evr("AAPL")
+    msft = provider.fetch_public_evr("MSFT")
+
+    assert [aapl.status, msft.status] == ["available", "available"]
+    assert session.login_calls == 1
+    assert session.symbol_requests == [
+        ("https://www.optionslam.com/aapl/", {}),
+        ("https://www.optionslam.com/aapl/", {"session": "authenticated"}),
+        ("https://www.optionslam.com/msft/", {}),
+        ("https://www.optionslam.com/msft/", {"session": "authenticated"}),
+    ]
 
 
 def test_fetch_public_evr_does_not_login_when_public_page_is_available():
