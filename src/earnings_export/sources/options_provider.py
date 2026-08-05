@@ -28,7 +28,11 @@ class ProviderResult:
 class OptionsDataProvider(Protocol):
     name: str
 
-    def fetch_current_chain(self, symbol: str) -> ProviderResult:
+    def fetch_current_chain(
+        self,
+        symbol: str,
+        expiration: date | None = None,
+    ) -> ProviderResult:
         raise NotImplementedError
 
     def fetch_historical_chain(self, symbol: str, as_of: date) -> ProviderResult:

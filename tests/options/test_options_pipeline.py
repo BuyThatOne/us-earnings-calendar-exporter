@@ -69,7 +69,7 @@ class RecordingProvider:
         self.current_calls: list[str] = []
         self.historical_calls: list[tuple[str, date]] = []
 
-    def fetch_current_chain(self, symbol: str) -> ProviderResult:
+    def fetch_current_chain(self, symbol: str, expiration: date | None = None) -> ProviderResult:
         self.current_calls.append(symbol)
         return self.current_result
 
@@ -91,9 +91,30 @@ class RecordingEvrProvider:
 
 
 class MalformedCurrentProvider(RecordingProvider):
-    def fetch_current_chain(self, symbol: str) -> ProviderResult:
+    def fetch_current_chain(self, symbol: str, expiration: date | None = None) -> ProviderResult:
         self.current_calls.append(symbol)
         raise ValueError("malformed provider response")
+
+
+class ExpirationRecordingProvider(RecordingProvider):
+    def __init__(
+        self,
+        name: str,
+        current_result: ProviderResult,
+        available_expirations: tuple[date, ...] = (),
+    ) -> None:
+        super().__init__(name, current_result)
+        self.current_calls_with_expiration: list[tuple[str, date | None]] = []
+        self.available_expirations = available_expirations
+
+    def fetch_current_chain(self, symbol: str, expiration: date | None = None) -> ProviderResult:
+        self.current_calls.append(symbol)
+        self.current_calls_with_expiration.append((symbol, expiration))
+        return self.current_result
+
+    def list_expirations(self, symbol: str) -> tuple[date, ...]:
+        self.current_calls.append(symbol)
+        return self.available_expirations
 
 
 def _settings(tmp_path) -> AnalysisSettings:
@@ -407,3 +428,68 @@ def test_analyze_events_selects_expiration_that_covers_each_event_time(tmp_path)
 
     assert expirations_by_ticker["AAPL"] == {next_expiration}
     assert expirations_by_ticker["MSFT"] == {same_day_expiration}
+
+
+def test_analyze_events_passes_selected_expiration_to_browser_provider(tmp_path):
+    alpha = RecordingProvider(
+        "alpha_vantage",
+        ProviderResult.unavailable("alpha_vantage", "missing_api_key"),
+    )
+    yahoo = RecordingProvider(
+        "yahoo",
+        ProviderResult.unavailable("yahoo", "request_failed"),
+    )
+    browser = ExpirationRecordingProvider("yahoo_browser", _current_result("yahoo_browser"))
+
+    result = analyze_events(
+        [
+            _event("AAPL"),
+            EarningsEvent(
+                earnings_date=EARNINGS_DATE,
+                ticker="MSFT",
+                company_name="Microsoft",
+                earnings_time="BMO",
+                exchange="NASDAQ",
+                source_calendar_url="https://calendar.test/msft",
+            ),
+        ],
+        [browser, yahoo, alpha],
+        _settings_with_browser(tmp_path),
+        FIXED_TIME,
+    )
+
+    assert result.candidates
+    assert browser.current_calls_with_expiration == [
+        ("AAPL", date(2026, 8, 7)),
+        ("MSFT", date(2026, 8, 6)),
+    ]
+
+
+def test_analyze_events_uses_first_available_expiration_for_browser_provider(tmp_path):
+    event = EarningsEvent(
+        earnings_date=date(2026, 8, 10),
+        ticker="B",
+        company_name="Barrick",
+        earnings_time="time-pre-market",
+        exchange="NYSE",
+        source_calendar_url="https://calendar.test/b",
+    )
+    alpha = RecordingProvider(
+        "alpha_vantage",
+        ProviderResult.unavailable("alpha_vantage", "missing_api_key"),
+    )
+    yahoo = RecordingProvider(
+        "yahoo",
+        ProviderResult.unavailable("yahoo", "request_failed"),
+    )
+    browser = ExpirationRecordingProvider(
+        "yahoo_browser",
+        _current_result("yahoo_browser"),
+        available_expirations=(date(2026, 8, 7), date(2026, 8, 14), date(2026, 8, 21)),
+    )
+
+    analyze_events([event], [browser, yahoo, alpha], _settings_with_browser(tmp_path), FIXED_TIME)
+
+    assert browser.current_calls_with_expiration == [
+        ("B", date(2026, 8, 14)),
+    ]

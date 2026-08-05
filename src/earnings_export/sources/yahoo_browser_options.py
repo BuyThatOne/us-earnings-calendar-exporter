@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from math import isfinite
 import re
 import time
 from typing import Callable, Protocol
+from urllib.parse import urlencode
 
 from earnings_export.options_models import OptionChainSnapshot, OptionContract, ProviderCapability
 from earnings_export.sources.options_provider import ProviderResult
@@ -42,10 +43,15 @@ class YahooBrowserPageData:
     body_text: str
     underlying_price: str | None
     rows: tuple[YahooBrowserOptionRow, ...]
+    available_expirations: tuple[date, ...] = ()
 
 
 class YahooBrowserPageReader(Protocol):
-    def read_current_page(self, symbol: str) -> YahooBrowserPageData:
+    def read_current_page(
+        self,
+        symbol: str,
+        expiration: date | None = None,
+    ) -> YahooBrowserPageData:
         raise NotImplementedError
 
     def close(self) -> None:
@@ -103,6 +109,15 @@ class PlaywrightYahooPageReader:
             return None
         return next((text.strip() for text in texts if text.strip()), None)
 
+    @staticmethod
+    def _parse_display_expiration(value: str | None) -> date | None:
+        if value is None:
+            return None
+        try:
+            return datetime.strptime(value.strip(), "%b %d, %Y").date()
+        except ValueError:
+            return None
+
     @classmethod
     def _option_type_from_rows(cls, rows: list[tuple[str, ...]]) -> str | None:
         for cells in rows:
@@ -141,7 +156,55 @@ class PlaywrightYahooPageReader:
         except Exception:
             return ()
 
-    def read_current_page(self, symbol: str) -> YahooBrowserPageData:
+    @classmethod
+    def _extract_available_expirations(
+        cls,
+        page,
+        timeout_ms: float,
+    ) -> tuple[date, ...]:
+        try:
+            buttons = page.get_by_role("button")
+            expiration_button = None
+            current_expiration = None
+            for button_index in range(buttons.count()):
+                button = buttons.nth(button_index)
+                label = button.get_attribute("aria-label") or button.inner_text().strip()
+                parsed = cls._parse_display_expiration(label)
+                if parsed is not None:
+                    expiration_button = button
+                    current_expiration = parsed
+                    break
+            if expiration_button is None:
+                return ()
+
+            expiration_button.click()
+            page.get_by_role("listbox").wait_for(state="visible", timeout=timeout_ms)
+            expirations = tuple(
+                parsed
+                for label in page.get_by_role("option").all_inner_texts()
+                if (parsed := cls._parse_display_expiration(label)) is not None
+            )
+            if expirations:
+                return expirations
+            return (current_expiration,) if current_expiration is not None else ()
+        except Exception:
+            return ()
+
+    @staticmethod
+    def _options_url(symbol: str, expiration: date | None) -> str:
+        base_url = f"https://ca.finance.yahoo.com/quote/{symbol}/options/"
+        if expiration is None:
+            return base_url
+        expiration_timestamp = int(
+            datetime.combine(expiration, datetime.min.time(), tzinfo=timezone.utc).timestamp()
+        )
+        return f"{base_url}?{urlencode({'date': expiration_timestamp})}"
+
+    def read_current_page(
+        self,
+        symbol: str,
+        expiration: date | None = None,
+    ) -> YahooBrowserPageData:
         self._start()
         if self._last_read_at is not None and self._delay_seconds:
             remaining_delay = self._delay_seconds - (time.monotonic() - self._last_read_at)
@@ -152,7 +215,7 @@ class PlaywrightYahooPageReader:
         try:
             page = self._context.new_page()
             response = page.goto(
-                f"https://ca.finance.yahoo.com/quote/{symbol}/options/",
+                self._options_url(symbol, expiration),
                 wait_until="domcontentloaded",
                 timeout=self._timeout_seconds * 1_000,
             )
@@ -173,6 +236,10 @@ class PlaywrightYahooPageReader:
                 body_text=body_text,
                 underlying_price=underlying_price,
                 rows=rows,
+                available_expirations=self._extract_available_expirations(
+                    page,
+                    self._timeout_seconds * 1_000,
+                ),
             )
         except _BrowserPageUnavailableError:
             raise
@@ -326,9 +393,13 @@ class YahooBrowserOptionsProvider:
         self._reader = reader
         self._clock = clock
 
-    def fetch_current_chain(self, symbol: str) -> ProviderResult:
+    def fetch_current_chain(
+        self,
+        symbol: str,
+        expiration: date | None = None,
+    ) -> ProviderResult:
         try:
-            page_data = self._reader.read_current_page(symbol)
+            page_data = self._reader.read_current_page(symbol, expiration)
         except _BrowserRateLimitedError:
             return ProviderResult.unavailable(self.name, "browser_rate_limited")
         except _BrowserPageUnavailableError:
@@ -336,6 +407,13 @@ class YahooBrowserOptionsProvider:
         except _BrowserUnavailableError:
             return ProviderResult.unavailable(self.name, "browser_unavailable")
         return parse_yahoo_browser_page(page_data, symbol, self._clock())
+
+    def list_expirations(self, symbol: str) -> tuple[date, ...]:
+        try:
+            page_data = self._reader.read_current_page(symbol, None)
+        except (_BrowserRateLimitedError, _BrowserPageUnavailableError, _BrowserUnavailableError):
+            return ()
+        return page_data.available_expirations
 
     def fetch_historical_chain(self, symbol: str, as_of: date) -> ProviderResult:
         return ProviderResult.unavailable(self.name, "unsupported")

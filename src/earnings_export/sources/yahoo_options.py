@@ -156,7 +156,11 @@ class YahooOptionsProvider:
         self._session = session
         self._clock = clock
 
-    def fetch_current_chain(self, symbol: str) -> ProviderResult:
+    def fetch_current_chain(
+        self,
+        symbol: str,
+        expiration: date | None = None,
+    ) -> ProviderResult:
         response = self._session.get(YAHOO_OPTIONS_URL.format(symbol=symbol), params={}, timeout=30)
         response.raise_for_status()
         return parse_yahoo_options(response.json(), symbol, self._clock())

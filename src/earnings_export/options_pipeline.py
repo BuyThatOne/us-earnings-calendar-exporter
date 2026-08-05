@@ -45,9 +45,47 @@ def _request_failed(provider: OptionsDataProvider) -> ProviderResult:
     return ProviderResult.unavailable(provider.name, "request_failed")
 
 
-def _fetch_current_chain(provider: OptionsDataProvider, symbol: str) -> ProviderResult:
+def _provider_expirations(
+    provider: OptionsDataProvider,
+    symbol: str,
+) -> tuple[date, ...] | None:
+    list_expirations = getattr(provider, "list_expirations", None)
+    if not callable(list_expirations):
+        return None
     try:
-        return provider.fetch_current_chain(symbol)
+        expirations = tuple(sorted(set(list_expirations(symbol))))
+    except requests.RequestException:
+        return ()
+    except ValueError:
+        return ()
+    return expirations
+
+
+def _selected_expiration(
+    event: EarningsEvent,
+    available_expirations: tuple[date, ...] | None = None,
+) -> date | None:
+    earnings_time = (event.earnings_time or "").strip().upper()
+    strict_after = earnings_time == "AMC" or ("AFTER" in earnings_time and "CLOSE" in earnings_time)
+    if available_expirations:
+        comparator = (
+            (lambda expiration: expiration > event.earnings_date)
+            if strict_after
+            else (lambda expiration: expiration >= event.earnings_date)
+        )
+        return next((expiration for expiration in available_expirations if comparator(expiration)), None)
+    if strict_after:
+        return event.earnings_date.fromordinal(event.earnings_date.toordinal() + 1)
+    return event.earnings_date
+
+
+def _fetch_current_chain(
+    provider: OptionsDataProvider,
+    symbol: str,
+    expiration: date | None = None,
+) -> ProviderResult:
+    try:
+        return provider.fetch_current_chain(symbol, expiration)
     except requests.RequestException:
         return _request_failed(provider)
     except ValueError:
@@ -165,7 +203,11 @@ def analyze_events(
     for event in sorted(events, key=lambda item: (item.earnings_date, item.ticker)):
         current_snapshot = None
         for provider in ordered_providers:
-            current_result = _fetch_current_chain(provider, event.ticker)
+            expiration = _selected_expiration(
+                event,
+                _provider_expirations(provider, event.ticker),
+            )
+            current_result = _fetch_current_chain(provider, event.ticker, expiration)
             capabilities.append(current_result.capability)
             if current_result.capability.available and current_result.snapshot is not None:
                 current_snapshot = current_result.snapshot

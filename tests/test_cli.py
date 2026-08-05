@@ -269,7 +269,7 @@ def test_options_run_passes_optionslam_credentials_to_evr_provider(monkeypatch, 
         def __init__(self, reader, clock):
             self.reader = reader
 
-        def fetch_current_chain(self, symbol):
+        def fetch_current_chain(self, symbol, expiration=None):
             return ProviderResult.unavailable(self.name, "browser_unavailable")
 
         def fetch_historical_chain(self, symbol, as_of):
@@ -284,7 +284,7 @@ def test_options_run_passes_optionslam_credentials_to_evr_provider(monkeypatch, 
         def __init__(self, settings, session):
             pass
 
-        def fetch_current_chain(self, symbol):
+        def fetch_current_chain(self, symbol, expiration=None):
             return ProviderResult.unavailable(self.name, "missing_api_key")
 
         def fetch_historical_chain(self, symbol, as_of):
@@ -296,7 +296,7 @@ def test_options_run_passes_optionslam_credentials_to_evr_provider(monkeypatch, 
         def __init__(self, session):
             pass
 
-        def fetch_current_chain(self, symbol):
+        def fetch_current_chain(self, symbol, expiration=None):
             return ProviderResult.unavailable(self.name, "request_failed")
 
         def fetch_historical_chain(self, symbol, as_of):
@@ -398,7 +398,7 @@ def test_options_run_writes_empty_artifacts_for_malformed_alpha_history(
         def __init__(self, reader, clock):
             self.reader = reader
 
-        def fetch_current_chain(self, symbol):
+        def fetch_current_chain(self, symbol, expiration=None):
             return ProviderResult.unavailable(self.name, "browser_unavailable")
 
         def fetch_historical_chain(self, symbol, as_of):

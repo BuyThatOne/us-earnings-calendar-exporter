@@ -5,6 +5,11 @@
     "header_market_price": "$210.50",
     "sidebar_market_price": "$49.13"
   },
+  "current_expiration": "Aug 21, 2026",
+  "expiration_options": [
+    "Aug 21, 2026",
+    "Aug 28, 2026"
+  ],
   "tables": [
     {
       "rows": [

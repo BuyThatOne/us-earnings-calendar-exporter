@@ -89,6 +89,47 @@ class _FakeText:
         return list(self._texts)
 
 
+class _FakeRoleItem:
+    def __init__(self, page: "_FakePage", role: str, text: str) -> None:
+        self._page = page
+        self._role = role
+        self._text = text
+
+    def inner_text(self) -> str:
+        return self._text
+
+    def get_attribute(self, name: str) -> str | None:
+        if name == "aria-label" and self._role == "button":
+            return self._text
+        return None
+
+    def click(self) -> None:
+        if self._role == "button":
+            self._page.expiration_menu_open = True
+
+
+class _FakeRoleLocator:
+    def __init__(self, page: "_FakePage", role: str, texts: tuple[str, ...]) -> None:
+        self._page = page
+        self._role = role
+        self._texts = texts
+
+    def count(self) -> int:
+        return len(self._texts)
+
+    def nth(self, index: int) -> _FakeRoleItem:
+        return _FakeRoleItem(self._page, self._role, self._texts[index])
+
+    def all_inner_texts(self) -> list[str]:
+        return list(self._texts)
+
+    def wait_for(self, *, state: str, timeout: float) -> None:
+        assert state == "visible"
+        assert timeout == 20_000.0
+        if self._role == "listbox":
+            assert self._page.expiration_menu_open is True
+
+
 class _FakePage:
     def __init__(
         self,
@@ -103,6 +144,7 @@ class _FakePage:
         self.row_waits: list[tuple[str, float]] = []
         self.table_queries: list[str] = []
         self.url: str | None = None
+        self.expiration_menu_open = False
 
     def goto(self, url: str, *, wait_until: str, timeout: float) -> _FakeResponse:
         self.url = url
@@ -136,6 +178,19 @@ class _FakePage:
             )
             return _FakeTables(tables)
         return _FakeRows((), self.row_waits)
+
+    def get_by_role(self, role: str, name: str | None = None) -> _FakeRoleLocator:
+        if role == "button":
+            texts = (self._fixture["current_expiration"],)
+        elif role == "listbox":
+            texts = (" ".join(self._fixture["expiration_options"]),) if self.expiration_menu_open else ()
+        elif role == "option":
+            texts = tuple(self._fixture["expiration_options"]) if self.expiration_menu_open else ()
+        else:
+            texts = ()
+        if name is not None:
+            texts = tuple(text for text in texts if text == name)
+        return _FakeRoleLocator(self, role, texts)
 
     def close(self) -> None:
         self._events.append("page.close")
@@ -267,6 +322,29 @@ def test_playwright_reader_extracts_unnamed_option_tables_and_closes_resources(m
     ]
 
 
+def test_playwright_reader_extracts_available_expirations_from_dropdown(monkeypatch):
+    runtime, _, _ = _playwright_runtime()
+    monkeypatch.setattr(yahoo_browser_options, "_sync_playwright", lambda: runtime)
+    reader = PlaywrightYahooPageReader(timeout_seconds=20.0, delay_seconds=0.0)
+
+    page_data = reader.read_current_page("AAPL")
+
+    assert page_data.available_expirations == (
+        date(2026, 8, 21),
+        date(2026, 8, 28),
+    )
+
+
+def test_playwright_reader_requests_specific_expiration_page(monkeypatch):
+    runtime, page, _ = _playwright_runtime()
+    monkeypatch.setattr(yahoo_browser_options, "_sync_playwright", lambda: runtime)
+    reader = PlaywrightYahooPageReader(timeout_seconds=20.0, delay_seconds=0.0)
+
+    reader.read_current_page("AAPL", expiration=date(2026, 8, 21))
+
+    assert page.url == "https://ca.finance.yahoo.com/quote/AAPL/options/?date=1787270400"
+
+
 def _page_data() -> YahooBrowserPageData:
     return YahooBrowserPageData(
         body_text="AAPL Options",
@@ -367,8 +445,13 @@ def test_browser_provider_reads_page_data_with_its_clock():
     page_data = _page_data()
 
     class Reader:
-        def read_current_page(self, symbol: str) -> YahooBrowserPageData:
+        def read_current_page(
+            self,
+            symbol: str,
+            expiration: date | None = None,
+        ) -> YahooBrowserPageData:
             assert symbol == "AAPL"
+            assert expiration is None
             return page_data
 
     result = YahooBrowserOptionsProvider(Reader(), clock=lambda: FIXED_TIME).fetch_current_chain("AAPL")

@@ -169,7 +169,11 @@ class AlphaVantageOptionsProvider:
         self._session = session
         self._clock = clock
 
-    def fetch_current_chain(self, symbol: str) -> ProviderResult:
+    def fetch_current_chain(
+        self,
+        symbol: str,
+        expiration: date | None = None,
+    ) -> ProviderResult:
         return self._fetch(symbol, "REALTIME_OPTIONS")
 
     def fetch_historical_chain(self, symbol: str, as_of: date) -> ProviderResult:
