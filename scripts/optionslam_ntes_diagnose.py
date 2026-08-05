@@ -49,7 +49,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def _run_fixture(fixture_path: Path, symbol: str, status_code: int) -> int:
-    source_url = OPTIONSLAM_URL.format(symbol=symbol.lower())
+    source_url = OPTIONSLAM_URL.format(symbol=symbol.upper())
     result = diagnose_optionslam_response(
         fixture_path.read_text(),
         status_code,
@@ -72,7 +72,7 @@ def _run_live(symbol: str) -> int:
         username=username,
         password=password,
     )
-    source_url = OPTIONSLAM_URL.format(symbol=symbol.lower())
+    source_url = OPTIONSLAM_URL.format(symbol=symbol.upper())
     try:
         response = session.get(
             source_url,

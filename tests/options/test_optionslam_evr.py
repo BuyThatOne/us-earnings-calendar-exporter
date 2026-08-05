@@ -5,6 +5,7 @@ import pytest
 import requests
 
 from earnings_export.sources.optionslam_evr import (
+    OPTIONSLAM_HOME_URL,
     OPTIONSLAM_LOGIN_URL,
     OptionSlamEvrProvider,
     parse_optionslam_evr,
@@ -12,7 +13,7 @@ from earnings_export.sources.optionslam_evr import (
 
 
 FIXED_TIME = datetime(2026, 7, 31, 14, 0, tzinfo=timezone.utc)
-SOURCE_URL = "https://www.optionslam.com/aapl/"
+SOURCE_URL = "https://www.optionslam.com/earnings/stocks/AAPL"
 
 
 @pytest.fixture
@@ -48,6 +49,44 @@ def test_parse_page_without_evr_returns_not_found():
 
     assert result.value is None
     assert result.status == "not_found"
+
+
+def test_parse_authenticated_stock_page_with_membership_nav_still_returns_evr():
+    html = """
+    <html>
+      <body>
+        <a href="/insider_member/">Membership Benefits</a>
+        <a href="/help/track_rating/">EVR</a>
+        <table>
+          <tr><td>EVR:</td><td>2.7</td></tr>
+        </table>
+      </body>
+    </html>
+    """
+
+    result = parse_optionslam_evr(html, "NTES", SOURCE_URL, FIXED_TIME)
+
+    assert result.value == 2.7
+    assert result.status == "available"
+
+
+def test_parse_stock_page_prefers_explicit_evr_cell_over_earlier_page_numbers():
+    html = """
+    <html>
+      <body>
+        <a href="/help/track_rating/">EVR</a> 1.0 transitional
+        <div>Some page chrome before the value</div>
+        <table>
+          <tr><td>EVR:</td><td>2.7</td></tr>
+        </table>
+      </body>
+    </html>
+    """
+
+    result = parse_optionslam_evr(html, "NTES", SOURCE_URL, FIXED_TIME)
+
+    assert result.value == 2.7
+    assert result.status == "available"
 
 
 class RecordingResponse:
@@ -113,18 +152,30 @@ class LoginThenSymbolSession:
         self.login_calls = 0
         self.symbol_get_calls = 0
         self.post_calls = 0
+        self.calls = []
 
     def get(self, url, *args, **kwargs):
+        self.calls.append(("get", url, kwargs))
         if url == SOURCE_URL:
             self.symbol_get_calls += 1
             if self.symbol_get_calls == 1:
                 return LoginResponse(self.public_html)
             return LoginResponse(self.authenticated_html)
+        if url == OPTIONSLAM_HOME_URL:
+            return LoginResponse(
+                """
+                <form method="post" action="/accounts/os_login/">
+                    <input type="hidden" name="next" value="/" />
+                    <input type="hidden" name="csrfmiddlewaretoken" value="fixture-token" />
+                </form>
+                """
+            )
         return LoginResponse(self.public_html)
 
     def post(self, *args, **kwargs):
         self.login_calls += 1
         self.post_calls += 1
+        self.calls.append(("post", args[0], kwargs))
         return LoginResponse("<html><body>Signed in</body></html>")
 
 
@@ -190,6 +241,29 @@ def test_fetch_public_evr_uses_authenticated_fallback_after_membership_gate(load
     assert result.status == "available"
     assert session.login_calls == 1
     assert session.symbol_get_calls == 2
+    assert session.calls[1] == (
+        "get",
+        OPTIONSLAM_HOME_URL,
+        {"headers": {"User-Agent": "Mozilla/5.0"}, "timeout": 30},
+    )
+    assert session.calls[2] == (
+        "post",
+        OPTIONSLAM_LOGIN_URL,
+        {
+            "data": {
+                "username": "proto-user",
+                "password": "proto-pass",
+                "csrfmiddlewaretoken": "fixture-token",
+                "next": "/",
+            },
+            "headers": {
+                "Referer": OPTIONSLAM_HOME_URL,
+                "User-Agent": "Mozilla/5.0",
+            },
+            "timeout": 30,
+            "allow_redirects": False,
+        },
+    )
 
 
 def test_fetch_public_evr_uses_authenticated_fallback_after_login_redirect():
@@ -233,6 +307,15 @@ def test_fetch_public_evr_uses_one_login_but_starts_each_gated_symbol_without_co
             self.symbol_requests = []
 
         def get(self, url, *args, **kwargs):
+            if url == OPTIONSLAM_HOME_URL:
+                return LoginResponse(
+                    """
+                    <form method="post" action="/accounts/os_login/">
+                        <input type="hidden" name="next" value="/" />
+                        <input type="hidden" name="csrfmiddlewaretoken" value="fixture-token" />
+                    </form>
+                    """
+                )
             if url == OPTIONSLAM_LOGIN_URL:
                 return LoginResponse("<html><body>Sign in</body></html>")
             self.symbol_requests.append((url, dict(self.cookies)))
@@ -259,10 +342,10 @@ def test_fetch_public_evr_uses_one_login_but_starts_each_gated_symbol_without_co
     assert [aapl.status, msft.status] == ["available", "available"]
     assert session.login_calls == 1
     assert session.symbol_requests == [
-        ("https://www.optionslam.com/aapl/", {}),
-        ("https://www.optionslam.com/aapl/", {"session": "authenticated"}),
-        ("https://www.optionslam.com/msft/", {}),
-        ("https://www.optionslam.com/msft/", {"session": "authenticated"}),
+        ("https://www.optionslam.com/earnings/stocks/AAPL", {}),
+        ("https://www.optionslam.com/earnings/stocks/AAPL", {"session": "authenticated"}),
+        ("https://www.optionslam.com/earnings/stocks/MSFT", {}),
+        ("https://www.optionslam.com/earnings/stocks/MSFT", {"session": "authenticated"}),
     ]
 
 

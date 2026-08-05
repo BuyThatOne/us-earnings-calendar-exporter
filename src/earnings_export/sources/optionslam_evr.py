@@ -8,8 +8,9 @@ from typing import Callable
 import requests
 
 
-OPTIONSLAM_URL = "https://www.optionslam.com/{symbol}/"
-OPTIONSLAM_LOGIN_URL = "https://www.optionslam.com/login/"
+OPTIONSLAM_HOME_URL = "https://www.optionslam.com/"
+OPTIONSLAM_URL = "https://www.optionslam.com/earnings/stocks/{symbol}"
+OPTIONSLAM_LOGIN_URL = "https://www.optionslam.com/accounts/os_login/"
 
 
 @dataclass(frozen=True)
@@ -26,10 +27,18 @@ def parse_optionslam_evr(
     if _requires_authentication(html):
         return EvrResult(None, source_url, "authentication_required", collected_at)
 
-    match = re.search(r"EVR[^0-9]*([0-9]+(?:\.[0-9]+)?)", html, re.IGNORECASE)
+    patterns = (
+        r"EVR:\s*</td>\s*<td>\s*([0-9]+(?:\.[0-9]+)?)",
+        r"Expected Volatility Range\s*\(EVR\)\s*:\s*([0-9]+(?:\.[0-9]+)?)%",
+        r"EVR[^0-9]*([0-9]+(?:\.[0-9]+)?)",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, html, re.IGNORECASE | re.DOTALL)
+        if match is not None:
+            return EvrResult(float(match.group(1)), source_url, "available", collected_at)
     if match is None:
         return EvrResult(None, source_url, "not_found", collected_at)
-    return EvrResult(float(match.group(1)), source_url, "available", collected_at)
+    return EvrResult(None, source_url, "not_found", collected_at)
 
 
 def diagnose_optionslam_response(
@@ -69,7 +78,7 @@ class OptionSlamEvrProvider:
         self._login_attempted = False
 
     def _fetch_symbol(self, symbol: str, *, public: bool = False) -> EvrResult:
-        source_url = OPTIONSLAM_URL.format(symbol=symbol.strip().lower())
+        source_url = OPTIONSLAM_URL.format(symbol=symbol.strip().upper())
         collected_at = self._clock()
         try:
             response = self._get_symbol(source_url, public=public)
@@ -112,24 +121,36 @@ class OptionSlamEvrProvider:
             return False
 
         try:
-            self._session.get(
-                OPTIONSLAM_LOGIN_URL,
+            login_page = self._session.get(
+                OPTIONSLAM_HOME_URL,
                 headers={"User-Agent": "Mozilla/5.0"},
                 timeout=30,
             )
+            csrf_match = re.search(
+                r'name="csrfmiddlewaretoken"\s+value="([^"]+)"',
+                login_page.text,
+            )
+            next_match = re.search(r'name="next"\s+value="([^"]+)"', login_page.text)
             response = self._session.post(
                 OPTIONSLAM_LOGIN_URL,
                 data={
                     "username": self._username,
                     "password": self._password,
+                    "csrfmiddlewaretoken": csrf_match.group(1) if csrf_match else "",
+                    "next": next_match.group(1) if next_match else "/",
                 },
-                headers={"User-Agent": "Mozilla/5.0"},
+                headers={
+                    "Referer": OPTIONSLAM_HOME_URL,
+                    "User-Agent": "Mozilla/5.0",
+                },
                 timeout=30,
+                allow_redirects=False,
             )
-            response.raise_for_status()
         except requests.RequestException:
             return False
 
+        if getattr(response, "status_code", 200) >= 400:
+            return False
         if _requires_authentication(response.text):
             return False
 
@@ -156,7 +177,12 @@ class OptionSlamEvrProvider:
 
 def _requires_authentication(html: str) -> bool:
     lowered = html.lower()
-    return "sign in" in lowered or "membership" in lowered
+    return (
+        "please login first" in lowered
+        or "please log in first" in lowered
+        or "sign in to continue" in lowered
+        or "please sign in" in lowered
+    )
 
 
 def _is_login_redirect(

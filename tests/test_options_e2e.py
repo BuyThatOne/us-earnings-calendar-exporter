@@ -4,6 +4,7 @@ import json
 from datetime import date, datetime, timezone
 from pathlib import Path
 
+import earnings_export.options_config as options_config
 from earnings_export.cli import main
 from earnings_export.sources.optionslam_evr import EvrResult
 from earnings_export.sources.alpha_vantage_options import ALPHA_VANTAGE_URL
@@ -60,7 +61,7 @@ class FixtureSession:
                 return FixtureResponse(payload=self._alpha_history)
         if url == YAHOO_OPTIONS_URL.format(symbol="AAPL"):
             return FixtureResponse(payload=self._yahoo_chain)
-        if url == OPTIONSLAM_URL.format(symbol="aapl"):
+        if url == OPTIONSLAM_URL.format(symbol="AAPL"):
             return FixtureResponse(text=self._optionslam_membership)
         raise AssertionError(f"Unexpected network request: {url}")
 
@@ -78,6 +79,11 @@ class FixedDateTime(datetime):
 
 
 def _run_options_command(monkeypatch, tmp_path: Path, alpha_current_fixture: str) -> Path:
+    monkeypatch.setattr(
+        options_config,
+        "DEFAULT_CREDENTIALS_PATH",
+        tmp_path / "missing-credentials.env",
+    )
     session = FixtureSession(alpha_current_fixture)
     output_dir = tmp_path / "exports" / "earnings-options"
     monkeypatch.setenv("ALPHAVANTAGE_API_KEY", FIXTURE_API_KEY)

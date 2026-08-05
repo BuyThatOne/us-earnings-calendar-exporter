@@ -57,5 +57,5 @@ def test_live_diagnostic_uses_environment_credentials_and_sanitizes_request_erro
     assert captured_environ["OPTIONSLAM_PASSWORD"] == "proto-pass"
     assert capsys.readouterr().out == (
         "symbol=NTES mode=live http_status=unavailable "
-        "final_url=https://www.optionslam.com/ntes/ result_status=request_failed\n"
+        "final_url=https://www.optionslam.com/earnings/stocks/NTES result_status=request_failed\n"
     )
