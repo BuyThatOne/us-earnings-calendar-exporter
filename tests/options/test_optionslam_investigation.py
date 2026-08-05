@@ -21,4 +21,4 @@ def test_diagnose_membership_or_variant_response_classifies_ntes_failure():
     )
 
     assert result.value is None
-    assert result.status in {"authentication_required", "request_failed", "not_found"}
+    assert result.status == "authentication_required"

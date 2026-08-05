@@ -71,7 +71,6 @@ def _run_live(symbol: str) -> int:
         username=username,
         password=password,
     )
-    provider._login()
     source_url = OPTIONSLAM_URL.format(symbol=symbol.lower())
     response = session.get(
         source_url,
@@ -86,6 +85,25 @@ def _run_live(symbol: str) -> int:
         source_url,
         datetime.now(timezone.utc),
     )
+
+    if result.status == "authentication_required" and username and password:
+        if provider._login():
+            response = session.get(
+                source_url,
+                headers={"User-Agent": "Mozilla/5.0"},
+                timeout=30,
+                allow_redirects=False,
+            )
+            result = diagnose_optionslam_response(
+                response.text,
+                getattr(response, "status_code", 200),
+                symbol,
+                source_url,
+                datetime.now(timezone.utc),
+            )
+        else:
+            result = type(result)(None, source_url, "login_failed", result.collected_at)
+
     final_url = getattr(response, "url", source_url)
     print(
         f"symbol={symbol} mode=live http_status={getattr(response, 'status_code', 200)} "
