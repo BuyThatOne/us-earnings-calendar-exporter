@@ -15,7 +15,7 @@ Alpha Vantage is the first configured options provider and is used only for capa
 - Acquire current options bid/ask data, underlying price, IV, and Greeks when available.
 - Use Alpha Vantage historical option-chain data and stock prices whenever its entitlement permits.
 - Include public, unauthenticated OptionSlam EVR as optional historical context.
-- Reject a candidate when any selected contract has a bid-ask spread greater than 10% of its midpoint.
+- Reject a candidate when any selected contract has a bid-ask spread greater than 15% of its midpoint by default.
 - Rank neutral strategy candidates, preferring defined-risk structures while permitting explicit higher-risk alternatives.
 - Write Markdown and JSON artifacts with source provenance and data-quality flags.
 - Preserve a future, explicit broker-execution integration point without enabling order placement.
@@ -164,7 +164,7 @@ Future data providers, including a broker, implement the same interfaces. A brok
 
 ## Analysis And Strategy Ranking
 
-The CLI first selects expirations that cover the earnings event and then evaluates contracts required by a proposed strategy. Every selected contract must have a positive bid and ask and a bid-ask spread percentage no greater than 10% of midpoint. A candidate failing this check is omitted entirely.
+The CLI first selects expirations that cover the earnings event and then evaluates contracts required by a proposed strategy. Every selected contract must have a positive bid and ask and a bid-ask spread percentage no greater than 15% of midpoint by default. A candidate failing this check is omitted entirely.
 
 For eligible symbols, the analysis calculates a market-implied move from a near-the-money straddle when valid call and put quotes exist. It compares that move with the mean, median, and maximum one-day post-earnings absolute moves from the historical event study. It adds available historical IV changes and OptionSlam EVR as labeled context.
 
@@ -209,7 +209,7 @@ Minimum coverage:
 - Alpha Vantage fixtures normalize current and historical chain responses.
 - Yahoo fallback activates only for fields Alpha Vantage cannot provide.
 - OptionSlam EVR parser accepts public fixture pages and rejects login/membership pages without retrying access.
-- Midpoint and spread calculations cover zero, missing, and boundary values; exactly 10% qualifies and values above it do not.
+- Midpoint and spread calculations cover zero, missing, and boundary values; exactly 15% qualifies and values above it do not when the default threshold is used.
 - Historical earnings-move calculations are deterministic for before-market and after-market event dates.
 - Strategy ranking prefers a defined-risk equivalent over an undefined-risk candidate.
 - Empty candidate runs write valid Markdown and JSON artifacts and return success.

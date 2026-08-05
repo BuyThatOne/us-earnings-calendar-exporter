@@ -17,7 +17,7 @@
 - Alpha Vantage capability loss is a partial-data result, not a fatal parser error.
 - Yahoo is a current-chain-only fallback and must not be used for historical option data.
 - Read OptionSlam EVR only from publicly accessible, unauthenticated pages. Never register, authenticate, or bypass access controls.
-- Selected contracts qualify only when `bid > 0`, `ask > 0`, and `(ask - bid) / ((ask + bid) / 2) <= 0.10`.
+- Selected contracts qualify only when `bid > 0`, `ask > 0`, and `(ask - bid) / ((ask + bid) / 2) <= 0.15` by default.
 - Omit every non-qualifying symbol from candidate lists; successful zero-candidate runs still write Markdown and JSON artifacts.
 - Rank defined-risk neutral structures ahead of otherwise comparable undefined-risk structures. Every result uses `execution_status: "research_only"`.
 - Normal test runs use recorded fixtures and never perform live provider calls.
@@ -69,7 +69,7 @@ def test_load_analysis_settings_uses_safe_defaults(tmp_path):
     settings = load_analysis_settings({}, tmp_path)
 
     assert settings.output_dir == tmp_path / "exports/earnings-options"
-    assert settings.spread_limit == 0.10
+    assert settings.spread_limit == 0.15
     assert settings.provider_order == ("alpha_vantage", "yahoo")
 
 
@@ -104,7 +104,7 @@ class AnalysisSettings:
 def load_analysis_settings(environ: Mapping[str, str], cwd: Path) -> AnalysisSettings:
     return AnalysisSettings(
         output_dir=cwd / environ.get("EARNINGS_OPTIONS_OUTPUT_DIR", "exports/earnings-options"),
-        spread_limit=float(environ.get("EARNINGS_OPTIONS_MAX_SPREAD_PCT", "0.10")),
+        spread_limit=float(environ.get("EARNINGS_OPTIONS_MAX_SPREAD_PCT", "0.15")),
         provider_order=("alpha_vantage", "yahoo"),
         alpha_vantage_api_key=environ.get("ALPHAVANTAGE_API_KEY") or None,
     )
