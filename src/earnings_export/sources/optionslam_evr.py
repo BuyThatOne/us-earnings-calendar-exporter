@@ -32,6 +32,21 @@ def parse_optionslam_evr(
     return EvrResult(float(match.group(1)), source_url, "available", collected_at)
 
 
+def diagnose_optionslam_response(
+    html: str,
+    status_code: int,
+    symbol: str,
+    source_url: str,
+    collected_at: datetime,
+) -> EvrResult:
+    parsed = parse_optionslam_evr(html, symbol, source_url, collected_at)
+    if parsed.status == "authentication_required":
+        return parsed
+    if status_code >= 400:
+        return EvrResult(None, source_url, "request_failed", collected_at)
+    return parsed
+
+
 class OptionSlamEvrProvider:
     name = "optionslam"
 
@@ -52,7 +67,6 @@ class OptionSlamEvrProvider:
     def _fetch_symbol(self, symbol: str) -> EvrResult:
         source_url = OPTIONSLAM_URL.format(symbol=symbol.strip().lower())
         collected_at = self._clock()
-        parsed: EvrResult | None = None
         try:
             response = self._session.get(
                 source_url,
@@ -60,14 +74,15 @@ class OptionSlamEvrProvider:
                 timeout=30,
                 allow_redirects=False,
             )
-            parsed = parse_optionslam_evr(response.text, symbol, source_url, collected_at)
-            response.raise_for_status()
         except requests.RequestException:
-            if parsed is not None and parsed.status == "authentication_required":
-                return parsed
             return EvrResult(None, source_url, "request_failed", collected_at)
-        assert parsed is not None
-        return parsed
+        return diagnose_optionslam_response(
+            response.text,
+            getattr(response, "status_code", 200),
+            symbol,
+            source_url,
+            collected_at,
+        )
 
     def _login(self) -> bool:
         if self._authenticated:
