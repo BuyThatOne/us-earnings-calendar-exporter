@@ -253,6 +253,31 @@ def test_analyze_events_uses_available_evr_as_optional_context(tmp_path):
     )
 
 
+def test_analyze_events_keeps_login_failed_evr_nonfatal(tmp_path):
+    alpha = RecordingProvider("alpha_vantage", _current_result("alpha_vantage"))
+    evr = RecordingEvrProvider(
+        EvrResult(
+            value=None,
+            source_url="https://www.optionslam.com/aapl/",
+            status="login_failed",
+            collected_at=FIXED_TIME,
+        )
+    )
+
+    result = analyze_events(
+        [_event()], [alpha], _settings(tmp_path), FIXED_TIME, evr_provider=evr,
+    )
+
+    assert result.candidates
+    assert any("optionslam_evr_login_failed" in warning for warning in result.candidates[0].warnings)
+    assert result.capabilities[-1] == ProviderCapability(
+        provider="optionslam",
+        available=False,
+        code="login_failed",
+        supported_fields=("evr",),
+    )
+
+
 def test_analyze_events_falls_back_when_alpha_reports_capability_without_snapshot(tmp_path):
     alpha = RecordingProvider(
         "alpha_vantage",

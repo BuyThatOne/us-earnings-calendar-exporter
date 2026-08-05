@@ -9,6 +9,7 @@ import requests
 
 
 OPTIONSLAM_URL = "https://www.optionslam.com/{symbol}/"
+OPTIONSLAM_LOGIN_URL = "https://www.optionslam.com/login/"
 
 
 @dataclass(frozen=True)
@@ -22,8 +23,7 @@ class EvrResult:
 def parse_optionslam_evr(
     html: str, symbol: str, source_url: str, collected_at: datetime,
 ) -> EvrResult:
-    lowered = html.lower()
-    if "sign in" in lowered or "membership" in lowered:
+    if _requires_authentication(html):
         return EvrResult(None, source_url, "authentication_required", collected_at)
 
     match = re.search(r"EVR[^0-9]*([0-9]+(?:\.[0-9]+)?)", html, re.IGNORECASE)
@@ -39,11 +39,17 @@ class OptionSlamEvrProvider:
         self,
         session: requests.Session,
         clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
+        username: str | None = None,
+        password: str | None = None,
     ) -> None:
         self._session = session
         self._clock = clock
+        self._username = username
+        self._password = password
+        self._authenticated = False
+        self._login_attempted = False
 
-    def fetch_public_evr(self, symbol: str) -> EvrResult:
+    def _fetch_symbol(self, symbol: str) -> EvrResult:
         source_url = OPTIONSLAM_URL.format(symbol=symbol.strip().lower())
         collected_at = self._clock()
         parsed: EvrResult | None = None
@@ -62,3 +68,59 @@ class OptionSlamEvrProvider:
             return EvrResult(None, source_url, "request_failed", collected_at)
         assert parsed is not None
         return parsed
+
+    def _login(self) -> bool:
+        if self._authenticated:
+            return True
+        if self._login_attempted:
+            return False
+        self._login_attempted = True
+        if not self._username or not self._password:
+            return False
+
+        try:
+            self._session.get(
+                OPTIONSLAM_LOGIN_URL,
+                headers={"User-Agent": "Mozilla/5.0"},
+                timeout=30,
+            )
+            response = self._session.post(
+                OPTIONSLAM_LOGIN_URL,
+                data={
+                    "username": self._username,
+                    "password": self._password,
+                },
+                headers={"User-Agent": "Mozilla/5.0"},
+                timeout=30,
+            )
+            response.raise_for_status()
+        except requests.RequestException:
+            return False
+
+        if _requires_authentication(response.text):
+            return False
+
+        self._authenticated = True
+        return True
+
+    def fetch_public_evr(self, symbol: str) -> EvrResult:
+        public_result = self._fetch_symbol(symbol)
+        if public_result.status == "available":
+            return public_result
+        if public_result.status != "authentication_required":
+            return public_result
+        if not self._username or not self._password:
+            return public_result
+        if not self._login():
+            return EvrResult(
+                None,
+                public_result.source_url,
+                "login_failed",
+                public_result.collected_at,
+            )
+        return self._fetch_symbol(symbol)
+
+
+def _requires_authentication(html: str) -> bool:
+    lowered = html.lower()
+    return "sign in" in lowered or "membership" in lowered

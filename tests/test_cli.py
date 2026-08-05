@@ -12,6 +12,7 @@ from earnings_export.cli import (
 )
 from earnings_export.export.options_report import AnalysisRunResult, OptionsArtifactPaths
 from earnings_export.models import EarningsEvent
+from earnings_export.options_config import AnalysisSettings
 from earnings_export.sources.options_provider import ProviderResult
 
 
@@ -250,6 +251,93 @@ def test_options_run_filters_market_cap_before_analysis_and_writes_empty_result(
     assert paths.json_path.exists()
     assert paths.markdown_path.exists()
     assert closed == ["reader"]
+
+
+def test_options_run_passes_optionslam_credentials_to_evr_provider(monkeypatch, tmp_path):
+    captured_credentials = {}
+
+    class Reader:
+        def __init__(self, timeout_seconds, delay_seconds):
+            pass
+
+        def close(self):
+            pass
+
+    class BrowserProvider:
+        name = "yahoo_browser"
+
+        def __init__(self, reader, clock):
+            self.reader = reader
+
+        def fetch_current_chain(self, symbol):
+            return ProviderResult.unavailable(self.name, "browser_unavailable")
+
+        def fetch_historical_chain(self, symbol, as_of):
+            return ProviderResult.unavailable(self.name, "unsupported")
+
+        def close(self):
+            self.reader.close()
+
+    class AlphaProvider:
+        name = "alpha_vantage"
+
+        def __init__(self, settings, session):
+            pass
+
+        def fetch_current_chain(self, symbol):
+            return ProviderResult.unavailable(self.name, "missing_api_key")
+
+        def fetch_historical_chain(self, symbol, as_of):
+            return ProviderResult.unavailable(self.name, "unsupported")
+
+    class YahooProvider:
+        name = "yahoo"
+
+        def __init__(self, session):
+            pass
+
+        def fetch_current_chain(self, symbol):
+            return ProviderResult.unavailable(self.name, "request_failed")
+
+        def fetch_historical_chain(self, symbol, as_of):
+            return ProviderResult.unavailable(self.name, "unsupported")
+
+    class CapturingEvrProvider:
+        name = "optionslam"
+
+        def __init__(self, session, clock, username=None, password=None):
+            captured_credentials["username"] = username
+            captured_credentials["password"] = password
+
+        def fetch_public_evr(self, symbol):
+            raise AssertionError("analysis should be stubbed before EVR fetch")
+
+    settings = AnalysisSettings(
+        output_dir=tmp_path / "exports",
+        spread_limit=0.10,
+        provider_order=("alpha_vantage", "yahoo", "yahoo_browser"),
+        alpha_vantage_api_key=None,
+        optionslam_username="proto-user",
+        optionslam_password="proto-pass",
+    )
+
+    monkeypatch.setattr("earnings_export.cli.get_next_week_window", lambda today: (date(2026, 8, 3), date(2026, 8, 7)))
+    monkeypatch.setattr("earnings_export.cli.load_analysis_settings", lambda environ, cwd: settings)
+    monkeypatch.setattr("earnings_export.cli.collect_events_for_week", lambda *args: [])
+    monkeypatch.setattr("earnings_export.cli.lookup_market_caps_for_events", lambda *args: {})
+    monkeypatch.setattr("earnings_export.cli.PlaywrightYahooPageReader", Reader)
+    monkeypatch.setattr("earnings_export.cli.YahooBrowserOptionsProvider", BrowserProvider)
+    monkeypatch.setattr("earnings_export.cli.AlphaVantageOptionsProvider", AlphaProvider)
+    monkeypatch.setattr("earnings_export.cli.YahooOptionsProvider", YahooProvider)
+    monkeypatch.setattr("earnings_export.cli.OptionSlamEvrProvider", CapturingEvrProvider)
+    monkeypatch.setattr("earnings_export.cli.analyze_events", lambda *args, **kwargs: _empty_run())
+
+    run_analyze_next_week_options(today=date(2026, 7, 31), cwd=tmp_path)
+
+    assert captured_credentials == {
+        "username": "proto-user",
+        "password": "proto-pass",
+    }
 
 
 def test_options_run_closes_browser_provider_when_analysis_raises(monkeypatch, tmp_path):

@@ -140,7 +140,12 @@ def run_analyze_next_week_options(
             providers,
             settings,
             run_at,
-            OptionSlamEvrProvider(session),
+            OptionSlamEvrProvider(
+                session,
+                lambda: datetime.now(timezone.utc).replace(microsecond=0),
+                username=settings.optionslam_username,
+                password=settings.optionslam_password,
+            ),
         )
         return write_options_artifacts(result, settings.output_dir)
     finally:

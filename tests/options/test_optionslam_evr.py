@@ -59,12 +59,14 @@ class RecordingResponse:
 class RecordingSession:
     def __init__(self):
         self.calls = []
+        self.post_calls = 0
 
     def get(self, *args, **kwargs):
         self.calls.append((args, kwargs))
         return RecordingResponse()
 
     def post(self, *args, **kwargs):
+        self.post_calls += 1
         raise AssertionError("authentication or form submission is not allowed")
 
 
@@ -85,6 +87,52 @@ class MembershipSession:
 
     def post(self, *args, **kwargs):
         raise AssertionError("authentication or form submission is not allowed")
+
+
+class LoginResponse:
+    def __init__(self, text: str):
+        self.text = text
+
+    def raise_for_status(self):
+        return None
+
+
+class LoginThenSymbolSession:
+    def __init__(self, public_html: str, authenticated_html: str):
+        self.public_html = public_html
+        self.authenticated_html = authenticated_html
+        self.login_calls = 0
+        self.symbol_get_calls = 0
+        self.post_calls = 0
+
+    def get(self, url, *args, **kwargs):
+        if url == SOURCE_URL:
+            self.symbol_get_calls += 1
+            if self.symbol_get_calls == 1:
+                return LoginResponse(self.public_html)
+            return LoginResponse(self.authenticated_html)
+        return LoginResponse(self.public_html)
+
+    def post(self, *args, **kwargs):
+        self.login_calls += 1
+        self.post_calls += 1
+        return LoginResponse("<html><body>Signed in</body></html>")
+
+
+class FailedLoginSession:
+    def __init__(self, public_html: str):
+        self.public_html = public_html
+        self.login_calls = 0
+        self.symbol_get_calls = 0
+
+    def get(self, url, *args, **kwargs):
+        if url == SOURCE_URL:
+            self.symbol_get_calls += 1
+        return LoginResponse(self.public_html)
+
+    def post(self, *args, **kwargs):
+        self.login_calls += 1
+        return LoginResponse(self.public_html)
 
 
 def test_fetch_public_evr_makes_exactly_one_public_get_without_authentication():
@@ -113,6 +161,58 @@ def test_fetch_public_evr_classifies_non_2xx_membership_response(load_fixture):
 
     assert result.value is None
     assert result.status == "authentication_required"
+
+
+def test_fetch_public_evr_uses_authenticated_fallback_after_membership_gate(load_fixture):
+    session = LoginThenSymbolSession(
+        public_html=load_fixture("optionslam_evr/login_page.html"),
+        authenticated_html="<html><body><p>EVR: 6.5%</p></body></html>",
+    )
+    provider = OptionSlamEvrProvider(
+        session=session,
+        clock=lambda: FIXED_TIME,
+        username="proto-user",
+        password="proto-pass",
+    )
+
+    result = provider.fetch_public_evr("AAPL")
+
+    assert result.value == 6.5
+    assert result.status == "available"
+    assert session.login_calls == 1
+    assert session.symbol_get_calls == 2
+
+
+def test_fetch_public_evr_does_not_login_when_public_page_is_available():
+    session = RecordingSession()
+    provider = OptionSlamEvrProvider(
+        session=session,
+        clock=lambda: FIXED_TIME,
+        username="proto-user",
+        password="proto-pass",
+    )
+
+    result = provider.fetch_public_evr("AAPL")
+
+    assert result.status == "available"
+    assert session.post_calls == 0
+
+
+def test_fetch_public_evr_reports_login_failed_without_retry_loop(load_fixture):
+    session = FailedLoginSession(load_fixture("optionslam_evr/login_page.html"))
+    provider = OptionSlamEvrProvider(
+        session=session,
+        clock=lambda: FIXED_TIME,
+        username="proto-user",
+        password="wrong-pass",
+    )
+
+    result = provider.fetch_public_evr("AAPL")
+
+    assert result.value is None
+    assert result.status == "login_failed"
+    assert session.login_calls == 1
+    assert session.symbol_get_calls == 1
 
 
 class FailingSession:
